@@ -359,7 +359,10 @@ async function getPyodide() {
       setStatus('Loading the browser Python runtime and BIA validator. The first run can take a little while.', 'loading');
       const pyodide = await window.loadPyodide({ indexURL: PYODIDE_INDEX });
       await pyodide.loadPackage('micropip');
-      await pyodide.runPythonAsync(`import micropip\nawait micropip.install("bia-ro-crate-validator==${VALIDATOR_VERSION}")`);
+      // Keep resolving compatible wheels when a dependency ships only native
+      // binaries. Importing the validator below remains the definitive check
+      // that its runtime dependencies are available in WebAssembly.
+      await pyodide.runPythonAsync(`import micropip\nawait micropip.install("bia-ro-crate-validator==${VALIDATOR_VERSION}", keep_going=True)`);
       return pyodide;
     })().catch(error => {
       pyodidePromise = null;
