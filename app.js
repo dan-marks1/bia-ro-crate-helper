@@ -23,6 +23,7 @@ const entityDraft = document.querySelector('#entityDraft');
 const VALIDATOR_VERSION = '0.3.1';
 const ROC_VALIDATOR_VERSION = '0.8.1';
 const PYODIDE_INDEX = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
+const RO_CRATE_CONTEXT_URL = 'https://w3id.org/ro/crate/1.1/context';
 const crateRoot = '/home/pyodide/bia-helper-crate';
 
 let crate = null;
@@ -413,7 +414,21 @@ async function writeCrateFiles(pyodide) {
   pyodide.FS.mkdirTree(crateRoot);
   try { pyodide.FS.unlink(`${crateRoot}/ro-crate-metadata.json`); } catch { /* No earlier run to clear. */ }
   try { pyodide.FS.unlink(`${crateRoot}/${fileListPath}`); } catch { /* No earlier run to clear. */ }
-  const data = new TextEncoder().encode(editor.value);
+  const validationMetadata = JSON.parse(editor.value);
+  const contexts = Array.isArray(validationMetadata['@context'])
+    ? validationMetadata['@context']
+    : [validationMetadata['@context']];
+  if (contexts.includes(RO_CRATE_CONTEXT_URL)) {
+    setStatus('Loading the RO-Crate context for local validation…', 'loading');
+    const response = await fetch(RO_CRATE_CONTEXT_URL);
+    if (!response.ok) throw new Error(`Could not load the RO-Crate 1.1 context (HTTP ${response.status}).`);
+    const contextDocument = await response.json();
+    if (!contextDocument?.['@context']) throw new Error('The RO-Crate context response was not valid JSON-LD.');
+    validationMetadata['@context'] = contexts.map(context =>
+      context === RO_CRATE_CONTEXT_URL ? contextDocument['@context'] : context
+    );
+  }
+  const data = new TextEncoder().encode(JSON.stringify(validationMetadata));
   pyodide.FS.writeFile(`${crateRoot}/ro-crate-metadata.json`, data);
   if (fileListText) {
     const listDirectory = fileListPath.split('/').slice(0, -1).join('/');
@@ -443,32 +458,79 @@ async function runOfficialValidation() {
     await writeCrateFiles(pyodide);
     const reportText = await pyodide.runPythonAsync(`
 import json
+import ast
 from pathlib import Path
 from rocrate_validator import models, services
-from bia_ro_crate.validator import bia_roc_validation
+from bia_ro_crate.core.parser.ro_crate_parser import ROCrateParser
+from bia_ro_crate.validator.validation import _report_issues
 
 # The BIA validator's internal RO-Crate profile pass defaults to REQUIRED
-# severity. For this review tool, include recommended and optional findings
-# too, so warnings and information are not silently omitted from the report.
-_bia_helper_original_settings = services.ValidationSettings
-def _bia_helper_all_severities(*args, **kwargs):
-    kwargs["requirement_severity"] = models.Severity.OPTIONAL
-    return _bia_helper_original_settings(*args, **kwargs)
+# severity. Raise that setting to OPTIONAL for this review tool so recommended
+# findings are included. Keep the original ValidationSettings class intact;
+# the validator uses it again when it starts the profile checks.
+_bia_helper_original_validate = services.validate
+def _bia_helper_all_severities(settings, *args, **kwargs):
+    settings.requirement_severity = models.Severity.OPTIONAL
+    return _bia_helper_original_validate(settings, *args, **kwargs)
 
-services.ValidationSettings = _bia_helper_all_severities
+services.validate = _bia_helper_all_severities
+_bia_helper_unhandled_error = None
 try:
-    report = bia_roc_validation(Path(${JSON.stringify(crateRoot)}), "report")
+    parser = ROCrateParser(Path(${JSON.stringify(crateRoot)}))
+    try:
+        parser.parse()
+        parser.result
+    except ExceptionGroup:
+        # Expected validation errors are collected on parser.issues and are
+        # included in the report below.
+        pass
+    except Exception as error:
+        _bia_helper_unhandled_error = error
+    report = _report_issues(parser)
+    if _bia_helper_unhandled_error is not None:
+        error = _bia_helper_unhandled_error
+        detail = error.args[0] if error.args and isinstance(error.args[0], str) else str(error).splitlines()[0]
+        term = None
+        if getattr(error, "code", None) == "invalid IRI mapping":
+            try:
+                details = error.details
+                if isinstance(details, str):
+                    details = ast.literal_eval(details)
+                term = details.get("term") if isinstance(details, dict) else None
+            except (ValueError, SyntaxError, AttributeError, TypeError):
+                pass
+        if term:
+            message = f"Invalid JSON-LD context term '{term}': this term definition must include an @id mapping. For example, use @id 'schema:{term}' if that is the intended property."
+            location = f"At JSON-LD @context term: {term}"
+        else:
+            message = f"The validator stopped before completing: {type(error).__name__}: {detail}"
+            location = "Validation did not complete"
+        report["issues"].setdefault("ERROR", []).append({
+            "message": message,
+            "severity": 40,
+            "location_description": location,
+        })
+        report["highest_error_level"] = "ERROR"
+        report["validation_completed"] = False
 finally:
-    services.ValidationSettings = _bia_helper_original_settings
+    services.validate = _bia_helper_original_validate
 json.dumps(report, default=str)
 `);
     const report = JSON.parse(reportText);
+    if (!report?.issues || typeof report.issues !== 'object') {
+      throw new Error('The validator returned an unexpected report; validation did not complete.');
+    }
     currentIssues = normalizeReport(report);
     validationIsCurrent = true;
     selectedIssueId = null;
     renderIssues();
-    jsonStatus.textContent = 'JSON parsed · official validation complete';
-    setStatus(currentIssues.length ? `Official validation complete · ${currentIssues.length} finding${currentIssues.length === 1 ? '' : 's'}.` : 'Official validation complete · no findings reported.', 'success');
+    if (report.validation_completed === false) {
+      jsonStatus.textContent = 'Validation stopped early';
+      setStatus(`Validation stopped early · ${currentIssues.length} issue${currentIssues.length === 1 ? '' : 's'} found before it stopped.`, 'error');
+    } else {
+      jsonStatus.textContent = 'JSON parsed · official validation complete';
+      setStatus(currentIssues.length ? `Official validation complete · ${currentIssues.length} finding${currentIssues.length === 1 ? '' : 's'}.` : 'Official validation complete · no findings reported.', 'success');
+    }
   } catch (error) {
     validationIsCurrent = false;
     jsonStatus.textContent = 'Validator could not run';
