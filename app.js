@@ -444,8 +444,22 @@ async function runOfficialValidation() {
     const reportText = await pyodide.runPythonAsync(`
 import json
 from pathlib import Path
+from rocrate_validator import models, services
 from bia_ro_crate.validator import bia_roc_validation
-report = bia_roc_validation(Path(${JSON.stringify(crateRoot)}), "report")
+
+# The BIA validator's internal RO-Crate profile pass defaults to REQUIRED
+# severity. For this review tool, include recommended and optional findings
+# too, so warnings and information are not silently omitted from the report.
+_bia_helper_original_settings = services.ValidationSettings
+def _bia_helper_all_severities(*args, **kwargs):
+    kwargs["requirement_severity"] = models.Severity.OPTIONAL
+    return _bia_helper_original_settings(*args, **kwargs)
+
+services.ValidationSettings = _bia_helper_all_severities
+try:
+    report = bia_roc_validation(Path(${JSON.stringify(crateRoot)}), "report")
+finally:
+    services.ValidationSettings = _bia_helper_original_settings
 json.dumps(report, default=str)
 `);
     const report = JSON.parse(reportText);
