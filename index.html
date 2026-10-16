@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f8f7" />
+    <title>BIA Crate Helper</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="BIA Crate Helper home">
+        <span class="brand-mark">B</span>
+        <span>BIA <strong>Crate Helper</strong></span>
+      </a>
+      <span class="privacy"><span class="privacy-dot"></span> Files stay in your browser</span>
+    </header>
+
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">RO-CRATE VALIDATION ASSISTANT</p>
+          <h1>Find the issue.<br /><span>Make the fix with confidence.</span></h1>
+          <p class="lede">Review validation findings beside your crate metadata, jump to the relevant JSON, and apply changes only when you’re ready.</p>
+        </div>
+        <div class="intro-art" aria-hidden="true">
+          <div class="art-card art-card-back">{ … }</div>
+          <div class="art-card art-card-front"><span class="art-check">✓</span><span>metadata<br /><b>in context</b></span></div>
+          <span class="art-spark spark-one">✳</span><span class="art-spark spark-two">✦</span>
+        </div>
+      </section>
+
+      <section class="load-panel" id="loadPanel">
+        <div class="load-copy">
+          <div class="upload-icon" aria-hidden="true">↑</div>
+          <div>
+            <h2>Open an RO-Crate folder</h2>
+            <p>Select the folder containing <code>ro-crate-metadata.json</code> and <code>file_list.tsv</code>.</p>
+          </div>
+        </div>
+        <div class="load-actions">
+          <label class="button button-primary" for="folderInput">Choose crate folder</label>
+          <button class="button button-secondary" id="demoButton" type="button">Explore a demo</button>
+          <input id="folderInput" type="file" webkitdirectory directory multiple hidden />
+        </div>
+        <p class="load-status" id="loadStatus">Nothing is uploaded. Choose a folder or open the demo.</p>
+      </section>
+
+      <section class="workspace" aria-label="Crate review workspace">
+        <aside class="issues-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">REVIEW</p><h2>Findings <span class="count" id="issueCount">0</span></h2></div>
+            <button class="icon-button" id="refreshButton" type="button" aria-label="Run local checks" title="Run local checks">↻</button>
+          </div>
+          <div class="demo-notice" id="demoNotice">Demo findings are examples. Uploaded crates use the prototype’s local checks, not yet the official BIA validator.</div>
+          <div class="issue-list" id="issueList">
+            <div class="empty-state"><span class="empty-icon">◎</span><strong>Your findings will appear here</strong><span>Open a crate to see available checks.</span></div>
+          </div>
+          <div class="reference-card">
+            <div class="reference-icon">↗</div>
+            <div><strong>Have a passing crate?</strong><p>Later, add it as a reference to compare similar metadata and learn from its structure.</p><button type="button" disabled>Reference crate · coming soon</button></div>
+          </div>
+        </aside>
+
+        <section class="editor-panel" aria-label="JSON editor">
+          <div class="editor-toolbar">
+            <div class="file-label"><span class="json-icon">{ }</span><span><strong>ro-crate-metadata.json</strong><small id="editorSubhead">Open a crate to begin</small></span></div>
+            <div class="editor-actions">
+              <span class="unsaved-indicator" id="editState">● Up to date</span>
+              <button class="button button-small" id="undoButton" type="button" disabled>Undo fix</button>
+              <button class="button button-small" id="downloadButton" type="button" disabled>Download JSON</button>
+            </div>
+          </div>
+          <div class="editor-wrap" id="editorWrap">
+            <div class="editor-empty" id="editorEmpty">
+              <div class="empty-document"><span>{ }</span><i></i><i></i><i></i></div>
+              <strong>Your metadata, with context</strong>
+              <p>Select a crate folder or load the demo. Click a finding to jump to the related JSON.</p>
+              <button class="text-button" id="editorDemoButton" type="button">Load the demo crate <span>→</span></button>
+            </div>
+            <div id="lineNumbers" aria-hidden="true"></div>
+            <textarea id="jsonEditor" spellcheck="false" aria-label="RO-Crate JSON metadata" disabled></textarea>
+            <div class="line-highlight" id="lineHighlight" hidden></div>
+          </div>
+          <div class="editor-footer"><span id="cursorPosition">JSON is shown with line numbers when a crate is open</span><span class="footer-status"><span class="status-dot"></span><span id="jsonStatus">Waiting for a crate</span></span></div>
+        </section>
+      </section>
+
+      <section class="how-it-works">
+        <span class="how-icon">✦</span><div><strong>A helper, not an autopilot.</strong><p>Suggested edits will be reviewable and reversible. The validator remains the source of truth.</p></div>
+        <span class="prototype-badge">EARLY PROTOTYPE</span>
+      </section>
+      <footer><span>BIA Crate Helper</span><span>Made for careful metadata curation</span></footer>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
