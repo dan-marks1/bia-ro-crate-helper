@@ -358,6 +358,7 @@ async function getPyodide() {
       if (typeof window.loadPyodide !== 'function') throw new Error('The browser Python runtime did not load. Check your network and reload this page.');
       setStatus('Loading the browser Python runtime and BIA validator. The first run can take a little while.', 'loading');
       const pyodide = await window.loadPyodide({ indexURL: PYODIDE_INDEX });
+      await pyodide.loadPackage('micropip');
       await pyodide.runPythonAsync(`import micropip\nawait micropip.install("bia-ro-crate-validator==${VALIDATOR_VERSION}")`);
       return pyodide;
     })().catch(error => {
