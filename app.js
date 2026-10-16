@@ -21,6 +21,7 @@ const editDialog = document.querySelector('#editDialog');
 const entityDraft = document.querySelector('#entityDraft');
 
 const VALIDATOR_VERSION = '0.3.1';
+const ROC_VALIDATOR_VERSION = '0.8.1';
 const PYODIDE_INDEX = 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/';
 const crateRoot = '/home/pyodide/bia-helper-crate';
 
@@ -359,10 +360,32 @@ async function getPyodide() {
       setStatus('Loading the browser Python runtime and BIA validator. The first run can take a little while.', 'loading');
       const pyodide = await window.loadPyodide({ indexURL: PYODIDE_INDEX });
       await pyodide.loadPackage('micropip');
-      // Install the pure-Python validator wheel without resolving optional or
-      // platform-specific dependencies; Pyodide's bundled packages and the
-      // import below determine which runtime dependencies are actually needed.
-      await pyodide.runPythonAsync(`import micropip\nawait micropip.install("bia-ro-crate-validator==${VALIDATOR_VERSION}", deps=False)`);
+      // Load compiled/runtime packages from Pyodide's WebAssembly package index.
+      await pyodide.loadPackage([
+        'pandas', 'pydantic', 'pyparsing', 'requests', 'pyyaml',
+        'platformdirs', 'click', 'cachetools', 'lxml'
+      ]);
+      await pyodide.runPythonAsync(`
+import micropip
+
+# Install the runtime dependency tree explicitly. roc-validator's wheel also
+# declares typos, a spell-check utility with no WebAssembly wheel. Its Python
+# validator code does not import typos, so skip only automatic resolution for
+# roc-validator and install its actual runtime dependencies here.
+await micropip.install("rdflib==7.6.0")
+await micropip.install("PyLD==2.0.4")
+await micropip.install("rich==13.9.4")
+await micropip.install("typer==0.24.1")
+await micropip.install("toml>=0.10.2,<1.0")
+await micropip.install("colorlog>=6.9,<7.0")
+await micropip.install("enum-tools>=0.12,<0.13")
+await micropip.install("InquirerPy>=0.3.4,<0.4.0")
+await micropip.install("pyshacl>=0.26")
+await micropip.install("requests-cache>=1.2,<2.0")
+await micropip.install("rich-click>=1.8,<2.0")
+await micropip.install("roc-validator==${ROC_VALIDATOR_VERSION}", deps=False)
+await micropip.install("bia-ro-crate-validator==${VALIDATOR_VERSION}", deps=False)
+`);
       return pyodide;
     })().catch(error => {
       pyodidePromise = null;
@@ -370,6 +393,13 @@ async function getPyodide() {
     });
   }
   return pyodidePromise;
+}
+
+function formatValidationError(error) {
+  const message = String(error?.message || error || '').trim();
+  const pythonErrors = [...message.matchAll(/(?:ModuleNotFoundError|ImportError|ValueError|RuntimeError):[^\n]*/g)];
+  if (pythonErrors.length) return pythonErrors[pythonErrors.length - 1][0];
+  return message.split('\n').map(line => line.trim()).filter(Boolean).at(-1) || 'Unknown error';
 }
 
 function safeRelativePath(file) {
@@ -428,7 +458,7 @@ json.dumps(report, default=str)
   } catch (error) {
     validationIsCurrent = false;
     jsonStatus.textContent = 'Validator could not run';
-    setStatus(`Could not run the official validator: ${error.message || error}. Check your connection and try again.`, 'error');
+    setStatus(`Could not run the official validator: ${formatValidationError(error)} Check your connection and try again.`, 'error');
     console.error(error);
   } finally {
     refreshButton.disabled = false;

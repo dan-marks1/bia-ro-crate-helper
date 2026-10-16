@@ -13,7 +13,7 @@ A small, independent test website for reviewing BIA RO-Crate validation findings
 
 ## Privacy and runtime
 
-The app has no application server. Crate metadata and the file list are read in the browser and placed in the Pyodide virtual filesystem for validation. They are not sent to a BIA or app server. On first validation, the browser downloads the Python runtime from jsDelivr and Python packages from PyPI; the app reports this before running. A network connection is needed for those downloads.
+The app has no application server. Crate metadata and the file list are read in the browser and placed in the Pyodide virtual filesystem for validation. They are not sent to a BIA or app server. On first validation, the browser downloads the Python runtime from jsDelivr and Python packages from PyPI, including the validator's RDF/JSON-LD dependencies; the app reports this before running. A network connection is needed for those downloads.
 
 The official validator's report provides messages, severities, and textual location descriptions. The helper matches entity IDs and property names where it can; some findings do not include a machine-readable JSON path, so their highlighted line is only a nearby guide. Always treat the validator output and your own review as authoritative.
 
