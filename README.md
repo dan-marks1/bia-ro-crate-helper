@@ -13,7 +13,7 @@ A small, independent test website for reviewing BIA RO-Crate validation findings
 - Navigate the graph by dragging to pan and using the wheel or zoom buttons; export the complete graph as a PNG.
 - Selecting a crate folder automatically starts validation. The **Run validation** button remains available after edits to recheck the metadata.
 - Work through three stages: RO-Crate validation, file-list checks, then a combined preflight review.
-- Download `bia_crate_inventory.py` from the site and run it from the submission directory. It creates `bia-file-inventory.json` containing relative paths, directory names, and byte sizes, without reading the data files.
+- Copy the Codon terminal setup from the site to create `~/bia_crate_inventory.py`, set its single `CRATE_DIR` line, and run it from anywhere. It creates `bia-file-inventory.json` in that submission directory, containing relative paths, directory names, and byte sizes without reading the data files.
 - Load the inventory report in the browser to compare manifest paths and declared byte sizes, inspect the directory tree, and download a combined preflight report.
 - Load a passing crate as an optional reference. Similar entity types can provide missing fields as editable starting points; the tool does not copy changes until the user asks it to.
 - Includes a small demo crate. A golden example slot is present for a later example supplied by the curator.
@@ -22,7 +22,7 @@ A small, independent test website for reviewing BIA RO-Crate validation findings
 
 The app has no application server. Crate metadata and the file list are read in the browser and placed in the Pyodide virtual filesystem for validation; the inventory report is read in the browser for comparison. These files are not sent to a BIA or app server. The inventory report contains relative paths and byte sizes only; the script does not open data files. The browser fetches the public RO-Crate 1.1 JSON-LD context and substitutes it only in the temporary validation copy, avoiding a Python-side remote-context lookup. On first validation, the browser also downloads the Python runtime from jsDelivr and Python packages from PyPI, including the validator's RDF/JSON-LD dependencies; the app reports this before running. A network connection is needed for those downloads.
 
-When files live on Codon/NFS, run the downloaded Python script in that directory, then copy the generated JSON report to the computer with the browser open and load it in step 2. No NFS mount or server access from the browser is needed. Regenerate the report if any files change. The report is an inventory snapshot and does not verify data-file contents or hashes.
+When files live on Codon/NFS, copy the setup command from step 2 into your Codon shell to create the script in your home directory. Change the `CRATE_DIR` line, then run `python3 ~/bia_crate_inventory.py` from anywhere. Copy the generated JSON report from the selected crate directory to the computer with the browser open and load it in step 2. No NFS mount or server access from the browser is needed. Regenerate the report if any files change. The report is an inventory snapshot and does not verify data-file contents or hashes.
 
 The official validator's report provides messages, severities, and textual location descriptions. The helper matches entity IDs and property names where it can; some findings do not include a machine-readable JSON path, so their highlighted line is only a nearby guide. Always treat the validator output and your own review as authoritative.
 

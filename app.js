@@ -1298,6 +1298,26 @@ function showWorkflowStep(step) {
 
 document.querySelectorAll('[data-workflow-step]').forEach(button => button.addEventListener('click', () => showWorkflowStep(button.dataset.workflowStep)));
 document.querySelectorAll('[data-go-step]').forEach(button => button.addEventListener('click', () => showWorkflowStep(button.dataset.goStep)));
+document.querySelector('#copyCodonSetupButton').addEventListener('click', async () => {
+  const status = document.querySelector('#copyCodonSetupStatus');
+  const button = document.querySelector('#copyCodonSetupButton');
+  button.disabled = true;
+  status.textContent = 'Preparing terminal command…';
+  try {
+    const response = await fetch(new URL('bia_crate_inventory.py', window.location.href));
+    if (!response.ok) throw new Error(`Script download returned HTTP ${response.status}.`);
+    const script = (await response.text()).trimEnd();
+    const delimiter = 'BIA_INVENTORY_SCRIPT_END_2026';
+    if (script.split(/\r?\n/).includes(delimiter)) throw new Error('Could not safely prepare the terminal command.');
+    const command = `cat > ~/bia_crate_inventory.py <<'${delimiter}'\n${script}\n${delimiter}\nchmod +x ~/bia_crate_inventory.py\n`;
+    await navigator.clipboard.writeText(command);
+    status.textContent = 'Copied. Paste into the Codon shell prompt; then edit the CRATE_DIR line.';
+  } catch (error) {
+    status.textContent = `Could not copy automatically: ${error.message} Use “Download script instead”, then copy it to Codon with scp.`;
+  } finally {
+    button.disabled = false;
+  }
+});
 fileListInput.addEventListener('change', async event => {
   const file = event.target.files?.[0];
   if (!file) return;

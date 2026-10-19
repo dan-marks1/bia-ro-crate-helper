@@ -130,6 +130,8 @@ main{max-width:1500px}
 .script-instructions li{margin:7px 0}
 .script-instructions p{margin:12px 0 0;color:#66737a}
 .script-instructions a{color:#3f73b5;font-weight:700}
+.terminal-setup{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0;color:#66737a;font-size:11px}
+.terminal-setup a{font-weight:600}
 .remote-copy-instructions{margin:12px 0;padding:10px 12px;border:1px solid #e0e5e7;border-radius:4px;background:#fff}
 .remote-copy-instructions summary{font-size:11px}
 .remote-copy-instructions pre{max-width:100%;overflow:auto;padding:11px;background:#f4f6f7;color:#334149;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}

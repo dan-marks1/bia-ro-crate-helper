@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>BIA RO-Crate Fix Helper</title>
-    <link rel="stylesheet" href="styles.css?v=workflow-inventory-1" />
+    <link rel="stylesheet" href="styles.css?v=codon-script-setup-1" />
     <script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
   </head>
   <body>
@@ -132,19 +132,16 @@
           </div>
 
           <details class="script-instructions" open>
-            <summary>Get the inventory script and run it</summary>
+            <summary>Set up and run the inventory script</summary>
             <ol>
-              <li>Download <a href="bia_crate_inventory.py" download="bia_crate_inventory.py">bia_crate_inventory.py</a>.</li>
-              <li>Copy it into the submission folder containing <code>file_list.tsv</code> and <code>ro-crate-metadata.json</code>.</li>
-              <li>In a terminal, change to that folder and run: <code>python3 bia_crate_inventory.py</code>. It creates <code>bia-file-inventory.json</code>.</li>
-              <li>If the data is on Codon, copy the JSON report back to the computer running this website, then select it above.</li>
+              <li>To install it on Codon, copy the terminal setup below and paste it at the Codon shell prompt. This creates <code>~/bia_crate_inventory.py</code>.</li>
+              <li>Run <code>nano ~/bia_crate_inventory.py</code>, change the <code>CRATE_DIR</code> line near the top to the directory you want to check, then save and exit.</li>
+              <li>Run <code>python3 ~/bia_crate_inventory.py</code> from any directory. The report is written into the selected submission folder as <code>bia-file-inventory.json</code>.</li>
+              <li>Copy that JSON report back to the computer running this website, then select it above.</li>
             </ol>
-            <details class="remote-copy-instructions"><summary>Example: run it on Codon and copy the report back</summary><pre>scp ~/Downloads/bia_crate_inventory.py marks@codon-slurm-login-01:~
-ssh marks@codon-slurm-login-01
-cd /path/to/submission-folder
-python3 ~/bia_crate_inventory.py
-exit
-scp marks@codon-slurm-login-01:/path/to/submission-folder/bia-file-inventory.json ~/Downloads/</pre><p>Replace <code>/path/to/submission-folder</code> with the directory that contains the crate files. Use the same path in both <code>cd</code> and the final <code>scp</code> command.</p></details>
+            <div class="terminal-setup"><button class="button button-secondary button-small" id="copyCodonSetupButton" type="button">Copy Codon terminal setup</button><span id="copyCodonSetupStatus" role="status" aria-live="polite">Copies the script into your Codon home directory.</span><a href="bia_crate_inventory.py" download="bia_crate_inventory.py">Download script instead</a></div>
+            <details class="remote-copy-instructions"><summary>Example for the fischer2023multiplex folder</summary><pre>CRATE_DIR = Path("/nfs/production/matthewh/spora_submissions/staging_2026-09-29/fischer2023multiplex")
+scp marks@codon-slurm-login-01:/nfs/production/matthewh/spora_submissions/staging_2026-09-29/fischer2023multiplex/bia-file-inventory.json ~/Downloads/</pre><p>Edit the <code>CRATE_DIR</code> line near the top of <code>~/bia_crate_inventory.py</code>, save it, and run the script from <code>~</code> or any other directory. Run the <code>scp</code> command in a new terminal on your Mac to copy the report back, then select it above.</p></details>
             <p>The script inventories relative paths and file sizes only. It does not read data-file contents, change files, or connect to a server. Regenerate the report after changing the folder.</p>
           </details>
 
@@ -186,6 +183,6 @@ scp marks@codon-slurm-login-01:/path/to/submission-folder/bia-file-inventory.jso
         <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancel</button><button class="button button-primary" id="saveEntityButton" value="save">Save entity</button></div>
       </form>
     </dialog>
-    <script src="app.js?v=workflow-inventory-1"></script>
+    <script src="app.js?v=codon-script-setup-1"></script>
   </body>
 </html>
