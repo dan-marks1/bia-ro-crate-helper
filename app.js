@@ -41,6 +41,7 @@ let validationIsCurrent = false;
 let dialogEntityId = null;
 let dialogEditsWholeCrate = false;
 let debounceTimer = null;
+let graphCamera = { scale: 1, x: 0, y: 0 };
 
 const demoCrate = {
   '@context': {
@@ -127,6 +128,7 @@ function renderGraph() {
   if (!entities.length) {
     graphSummary.textContent = 'Load a crate to view its entities and links.';
     graphViewport.innerHTML = '<div class="graph-empty">The structure graph will appear here after you open a crate.</div>';
+    document.querySelector('#exportGraphButton').disabled = true;
     return;
   }
   const byId = new Map(entities.filter(entity => typeof entity?.['@id'] === 'string').map(entity => [entity['@id'], entity]));
@@ -145,61 +147,127 @@ function renderGraph() {
       } else if (!/^(https?:|urn:)/i.test(targetId)) dangling.push({ sourceId, targetId });
     }
   }
-  const tiers = [
-    [root],
-    entities.filter(entity => entity !== root && graphKind(entity) === 'dataset'),
-    entities.filter(entity => entity !== root && ['biosample', 'protocol', 'channel'].includes(graphKind(entity))),
-    entities.filter(entity => entity !== root && ['study', 'dataset', 'biosample', 'protocol', 'channel'].indexOf(graphKind(entity)) < 0)
-  ].filter(row => row.length);
-  const nodeW = 162;
-  const nodeH = 48;
-  const gapX = 36;
-  const gapY = 102;
-  const marginX = 28;
-  const marginY = 42;
-  const maxCount = Math.max(...tiers.map(row => row.length));
-  const width = Math.max(720, maxCount * (nodeW + gapX) + marginX * 2 - gapX);
-  const height = marginY * 2 + tiers.length * nodeH + (tiers.length - 1) * gapY;
+  const primary = entities.filter(entity => entity !== root && ['biosample', 'protocol', 'channel'].includes(graphKind(entity)));
+  const datasets = entities.filter(entity => entity !== root && graphKind(entity) === 'dataset');
+  const tail = entities.filter(entity => entity !== root && graphKind(entity) !== 'dataset' && !primary.includes(entity));
+  const tiers = [[root], datasets, primary, tail].filter(row => row.length);
+  const tierY = tiers.map((_, index) => [62, 155, 260, 365][index]);
+  const tierStep = tiers.map(row => row.length === 1 ? 0 : (row.length > 10 ? 44 : row.length > 5 ? 74 : 116));
+  const widths = tiers.map((row, index) => row.length <= 1 ? 0 : (row.length - 1) * tierStep[index]);
+  const width = Math.max(920, ...widths) + 100;
+  const height = Math.max(430, tierY[tiers.length - 1] + 65);
   const positions = new Map();
   tiers.forEach((row, tierIndex) => {
-    const rowWidth = row.length * nodeW + Math.max(0, row.length - 1) * gapX;
-    const startX = Math.max(marginX, (width - rowWidth) / 2);
-    row.forEach((entity, itemIndex) => positions.set(entity['@id'], {
-      x: startX + itemIndex * (nodeW + gapX),
-      y: marginY + tierIndex * (nodeH + gapY),
-      entity
-    }));
+    const step = tierStep[tierIndex] || 1;
+    const rowWidth = Math.max(0, row.length - 1) * step;
+    const startX = (width - rowWidth) / 2;
+    row.forEach((entity, itemIndex) => positions.set(entity['@id'], { x: startX + itemIndex * step, y: tierY[tierIndex], entity, tier: tierIndex }));
   });
   const edgeMarkup = links.map(({ sourceId, targetId }) => {
     const from = positions.get(sourceId);
     const to = positions.get(targetId);
     if (!from || !to) return '';
-    const x1 = from.x + nodeW / 2;
-    const y1 = from.y + (to.y > from.y ? nodeH : 0);
-    const x2 = to.x + nodeW / 2;
-    const y2 = to.y > from.y ? to.y : to.y + nodeH;
-    return `<path class="graph-edge" d="M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}" marker-end="url(#arrow)"/>`;
+    const direction = to.y >= from.y ? 1 : -1;
+    const y1 = from.y + direction * 15;
+    const y2 = to.y - direction * 15;
+    return `<path class="graph-edge" d="M ${from.x} ${y1} C ${from.x} ${(y1 + y2) / 2}, ${to.x} ${(y1 + y2) / 2}, ${to.x} ${y2}" marker-end="url(#arrow)"/>`;
   }).join('');
-  const danglingMarkup = dangling.map(({ sourceId }, index) => {
+  const danglingMarkup = dangling.map(({ sourceId, targetId }, index) => {
     const from = positions.get(sourceId);
     if (!from) return '';
-    const x = Math.min(width - 18, from.x + nodeW - 8 - (index % 4) * 7);
-    return `<circle class="dangling-point" cx="${x}" cy="${from.y + nodeH + 12 + (index % 3) * 4}" r="5"><title>Link target is not in @graph</title></circle>`;
+    const x = from.x + 31 + (index % 3) * 7;
+    const y = from.y + 24 + (index % 3) * 4;
+    return `<path class="graph-dangling-edge" d="M ${from.x + 8} ${from.y + 8} Q ${x - 8} ${y - 6}, ${x} ${y}"><title>Unresolved link to ${esc(targetId)}</title></path><circle class="dangling-point" cx="${x}" cy="${y}" r="7"><title>Unresolved link to ${esc(targetId)}</title></circle>`;
   }).join('');
   const nodesMarkup = [...positions.entries()].map(([id, pos]) => {
     const kind = graphKind(pos.entity);
     const orphan = id !== root?.['@id'] && !inbound.has(id);
     const label = nameOf(pos.entity);
     const title = `${label} · ${id}`;
-    return `<g class="graph-node ${kind}${orphan ? ' orphan-node' : ''}" data-entity="${esc(id)}" role="button" tabindex="0" aria-label="Open ${esc(title)}"><title>${esc(title)}</title><rect x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="7"/><text x="${pos.x + nodeW / 2}" y="${pos.y + 20}" text-anchor="middle">${esc(label.length > 24 ? `${label.slice(0, 22)}…` : label)}</text><text class="node-id" x="${pos.x + nodeW / 2}" y="${pos.y + 36}" text-anchor="middle">${esc(id.length > 25 ? `${id.slice(0, 23)}…` : id)}</text></g>`;
+    const shortLabel = label.length > 28 ? `${label.slice(0, 26)}…` : label;
+    const shape = kind === 'study'
+      ? `<path class="node-shape" d="M 0 -19 L 5 -7 L 18 -6 L 8 2 L 11 16 L 0 9 L -11 16 L -8 2 L -18 -6 L -5 -7 Z"/>`
+      : kind === 'dataset'
+        ? '<rect class="node-shape" x="-22" y="-13" width="44" height="26" rx="5"/>'
+        : kind === 'file' || kind === 'other'
+          ? '<circle class="node-shape" r="10"/>'
+          : '<circle class="node-shape" r="14"/>';
+    return `<g class="graph-node ${kind}${orphan ? ' orphan-node' : ''}" data-entity="${esc(id)}" role="button" tabindex="0" aria-label="Open ${esc(title)}"><title>${esc(title)}</title><text class="node-label" x="0" y="-22" text-anchor="middle">${esc(shortLabel)}</text>${shape}<text class="node-id" x="0" y="30" text-anchor="middle">${esc(id.length > 22 ? `${id.slice(0, 20)}…` : id)}</text></g>`;
   }).join('');
   graphSummary.textContent = `${entities.length} entities · ${links.length} links${dangling.length ? ` · ${dangling.length} unresolved link${dangling.length === 1 ? '' : 's'}` : ''}`;
-  graphViewport.innerHTML = `<svg class="crate-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="RO-Crate entity relationship graph"><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#aab3b8"/></marker></defs>${edgeMarkup}${danglingMarkup}${nodesMarkup}</svg>`;
+  graphViewport.innerHTML = `<svg id="crateGraph" class="crate-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="RO-Crate entity relationship graph"><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#aab3b8"/></marker></defs><g id="graphTransform">${edgeMarkup}${danglingMarkup}${nodesMarkup}</g></svg>`;
+  document.querySelector('#exportGraphButton').disabled = false;
+  applyGraphCamera();
   graphViewport.querySelectorAll('[data-entity]').forEach(node => {
     const jump = () => jumpToEntity(node.dataset.entity);
     node.addEventListener('click', jump);
     node.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); jump(); } });
   });
+}
+
+function applyGraphCamera() {
+  const group = graphViewport.querySelector('#graphTransform');
+  if (group) group.setAttribute('transform', `translate(${graphCamera.x} ${graphCamera.y}) scale(${graphCamera.scale})`);
+}
+
+function zoomGraph(factor, anchorX, anchorY) {
+  const svg = graphViewport.querySelector('svg');
+  if (!svg) return;
+  const { width, height } = svg.viewBox.baseVal;
+  const ax = anchorX ?? width / 2;
+  const ay = anchorY ?? height / 2;
+  const scale = Math.max(0.25, Math.min(6, graphCamera.scale * factor));
+  const worldX = (ax - graphCamera.x) / graphCamera.scale;
+  const worldY = (ay - graphCamera.y) / graphCamera.scale;
+  graphCamera = { scale, x: ax - worldX * scale, y: ay - worldY * scale };
+  applyGraphCamera();
+}
+
+async function exportGraphPng() {
+  const svg = graphViewport.querySelector('svg');
+  if (!svg) return;
+  const clone = svg.cloneNode(true);
+  const group = clone.querySelector('#graphTransform');
+  group?.removeAttribute('transform');
+  const { width, height } = svg.viewBox.baseVal;
+  const pixelScale = Math.min(3, 10000 / Math.max(width, height));
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width', Math.round(width * pixelScale));
+  clone.setAttribute('height', Math.round(height * pixelScale));
+  const svgStyles = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+  svgStyles.textContent = '.graph-edge{fill:none;stroke:#c4cbd0;stroke-width:1.6}.graph-dangling-edge{fill:none;stroke:#d53e39;stroke-width:2;stroke-dasharray:5 3}.dangling-point{fill:#fff;stroke:#d53e39;stroke-width:2;stroke-dasharray:3 2}.graph-node .node-shape{stroke-width:2}.graph-node.study .node-shape{fill:#3f73b5}.graph-node.dataset .node-shape{fill:#117991}.graph-node.biosample .node-shape{fill:#25985a}.graph-node.protocol .node-shape{fill:#8140da}.graph-node.channel .node-shape{fill:#12988b}.graph-node.file .node-shape,.graph-node.other .node-shape{fill:#758084}.graph-node.orphan-node .node-shape{stroke:#e5a12b;stroke-dasharray:5 3}.node-label{fill:#2b3438;font:600 11px Arial,sans-serif}.node-id{fill:#69757b;font:8px monospace}';
+  clone.insertBefore(svgStyles, clone.firstChild);
+  const svgBlob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(svgBlob);
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error('The graph image could not be rendered for export.'));
+      image.src = objectUrl;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width * pixelScale);
+    canvas.height = Math.round(height * pixelScale);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const png = await new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed.')), 'image/png'));
+    const pngUrl = URL.createObjectURL(png);
+    const link = document.createElement('a');
+    link.href = pngUrl;
+    link.download = `${(currentName || 'ro-crate').replace(/[^a-z0-9-_]+/gi, '-')}-structure.png`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+    document.querySelector('#graphActionStatus').textContent = 'PNG exported';
+  } catch (error) {
+    document.querySelector('#graphActionStatus').textContent = error.message;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function jumpToEntity(id) {
@@ -225,6 +293,7 @@ function loadCrate(data, name, text = '', isDemo = false) {
   selectedIssueId = null;
   currentIssues = [];
   validationIsCurrent = false;
+  graphCamera = { scale: 1, x: 0, y: 0 };
   editor.value = JSON.stringify(crate, null, 2);
   editor.disabled = false;
   editorEmpty.hidden = true;
@@ -236,7 +305,7 @@ function loadCrate(data, name, text = '', isDemo = false) {
   renderGraph();
   renderIssues();
   updateDirty(false);
-  setStatus('Crate ready. Choose Run validator to start the official BIA checks.');
+  setStatus('Crate ready. Run validation when you are ready.');
 }
 
 function updateDirty(dirty) {
@@ -314,13 +383,19 @@ function renderLineNumbers() {
   const lineIssues = new Map();
   currentIssues.forEach(issue => {
     const line = updateLineForIssue(issue);
-    if (line > 0 && line <= count) lineIssues.set(line, issue.severity);
+    if (line > 0 && line <= count) {
+      if (!lineIssues.has(line)) lineIssues.set(line, []);
+      lineIssues.get(line).push(issue);
+    }
   });
-  lineNumbers.textContent = Array.from({ length: count }, (_, index) => {
+  lineNumbers.innerHTML = Array.from({ length: count }, (_, index) => {
     const line = index + 1;
-    const marker = lineIssues.has(line) ? '● ' : '  ';
-    return `${marker}${line}`;
-  }).join('\n');
+    const issues = lineIssues.get(line) || [];
+    const marker = issues.length
+      ? `<span class="line-issue-mark ${esc(issues[0].severity)}" tabindex="0" role="img" aria-label="${esc(issues.map(issue => issue.message).join('; '))}" title="${esc(issues.map(issue => `${issue.severity.toUpperCase()}: ${issue.message}`).join('\n'))}">!</span>`
+      : '<span class="line-issue-mark empty"></span>';
+    return `<div class="line-row">${marker}<span class="line-number">${line}</span></div>`;
+  }).join('');
   lineNumbers.scrollTop = editor.scrollTop;
   renderHighlights();
 }
@@ -752,6 +827,8 @@ async function openFolder(files) {
     const data = JSON.parse(raw);
     const fileList = allFiles.find(file => file.name.toLowerCase() === 'file_list.tsv');
     loadCrate(data, metadata.webkitRelativePath?.split('/')[0] || metadata.name, fileList ? await fileList.text() : '');
+    setStatus('Crate loaded. Starting official validation automatically…', 'loading');
+    await runOfficialValidation();
   } catch (error) {
     crate = null;
     editor.value = await metadata.text();
@@ -759,6 +836,7 @@ async function openFolder(files) {
     editorEmpty.hidden = true;
     downloadButton.disabled = false;
     currentIssues = [];
+    renderGraph();
     renderIssues();
     editorSubhead.textContent = 'JSON syntax needs attention';
     loadStatus.textContent = 'Metadata file opened, but JSON parsing failed.';
@@ -833,6 +911,46 @@ document.querySelector('#editDialog form').addEventListener('submit', event => {
     applyEntityDraft();
   }
 });
+document.querySelector('#zoomInButton').addEventListener('click', () => zoomGraph(1.25));
+document.querySelector('#zoomOutButton').addEventListener('click', () => zoomGraph(0.8));
+document.querySelector('#resetGraphButton').addEventListener('click', () => {
+  graphCamera = { scale: 1, x: 0, y: 0 };
+  applyGraphCamera();
+});
+document.querySelector('#exportGraphButton').addEventListener('click', exportGraphPng);
+let graphDrag = null;
+graphViewport.addEventListener('pointerdown', event => {
+  if (event.button !== 0 || event.target.closest?.('.graph-node')) return;
+  const svg = event.target.closest?.('#crateGraph');
+  if (!svg) return;
+  const rect = svg.getBoundingClientRect();
+  const viewBox = svg.viewBox.baseVal;
+  graphDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, cameraX: graphCamera.x, cameraY: graphCamera.y, ratioX: viewBox.width / rect.width, ratioY: viewBox.height / rect.height };
+  svg.setPointerCapture(event.pointerId);
+  graphViewport.classList.add('dragging');
+});
+graphViewport.addEventListener('pointermove', event => {
+  if (!graphDrag || graphDrag.pointerId !== event.pointerId) return;
+  graphCamera.x = graphDrag.cameraX + (event.clientX - graphDrag.x) * graphDrag.ratioX;
+  graphCamera.y = graphDrag.cameraY + (event.clientY - graphDrag.y) * graphDrag.ratioY;
+  applyGraphCamera();
+});
+for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+  graphViewport.addEventListener(eventName, event => {
+    if (graphDrag?.pointerId === event.pointerId) graphDrag = null;
+    graphViewport.classList.remove('dragging');
+  });
+}
+graphViewport.addEventListener('wheel', event => {
+  const svg = graphViewport.querySelector('svg');
+  if (!svg) return;
+  event.preventDefault();
+  const rect = svg.getBoundingClientRect();
+  const viewBox = svg.viewBox.baseVal;
+  const anchorX = (event.clientX - rect.left) * viewBox.width / rect.width;
+  const anchorY = (event.clientY - rect.top) * viewBox.height / rect.height;
+  zoomGraph(event.deltaY < 0 ? 1.12 : 0.89, anchorX, anchorY);
+}, { passive: false });
 downloadButton.addEventListener('click', () => {
   try {
     const parsed = JSON.parse(editor.value);

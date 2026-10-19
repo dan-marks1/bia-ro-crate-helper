@@ -10,6 +10,8 @@ A small, independent test website for reviewing BIA RO-Crate validation findings
 - Click a finding to highlight its JSON location. The helper scopes property searches to the referenced entity and handles JSON-LD context-term findings; findings without a precise machine-readable path fall back to the entity or context block.
 - Review a finding in a dialog with a suggested next step, edit the relevant JSON entity, undo edits, and download the edited metadata. Suggestions explain the likely correction without inventing study-specific values.
 - View a generated structure graph of the crate entities and their `@id` relationships. Nodes are grouped by entity type, orphan entities and unresolved links are marked, and clicking a node jumps to its JSON.
+- Navigate the graph by dragging to pan and using the wheel or zoom buttons; export the complete graph as a PNG.
+- Selecting a crate folder automatically starts validation. The **Run validation** button remains available after edits to recheck the metadata.
 - Load a passing crate as an optional reference. Similar entity types can provide missing fields as editable starting points; the tool does not copy changes until the user asks it to.
 - Includes a small demo crate. A golden example slot is present for a later example supplied by the curator.
 

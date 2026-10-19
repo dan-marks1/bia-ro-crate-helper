@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>BIA RO-Crate Fix Helper</title>
-    <link rel="stylesheet" href="styles.css?v=review-graph-1" />
+    <link rel="stylesheet" href="styles.css?v=graph-controls-2" />
     <script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
   </head>
   <body>
@@ -87,6 +87,10 @@
 
       <section class="structure-panel" aria-label="RO-Crate structure">
         <div class="structure-heading"><div><p class="eyebrow">RO-CRATE OVERVIEW</p><h2>Structure</h2></div><span id="graphSummary">Load a crate to view its entities and links.</span></div>
+        <div class="graph-toolbar">
+          <span class="graph-hint" id="graphActionStatus">Drag to move · scroll to zoom</span>
+          <div class="graph-tools"><button class="button button-small" id="zoomOutButton" type="button" aria-label="Zoom out">−</button><button class="button button-small" id="zoomInButton" type="button" aria-label="Zoom in">+</button><button class="button button-small" id="resetGraphButton" type="button">Reset view</button><button class="button button-primary button-small" id="exportGraphButton" type="button" disabled>Export PNG</button></div>
+        </div>
         <div class="graph-viewport" id="graphViewport"><div class="graph-empty">The structure graph will appear here after you open a crate.</div></div>
         <div class="graph-legend" aria-label="Graph legend"><span><i class="study"></i>Study</span><span><i class="dataset"></i>Dataset</span><span><i class="biosample"></i>BioSample</span><span><i class="protocol"></i>Protocol</span><span><i class="channel"></i>Channel</span><span><i class="orphan"></i>Orphan</span><span><i class="dangling"></i>Dangling link</span></div>
         <p class="graph-help">Select a node to jump to that entity in the JSON.</p>
@@ -112,6 +116,6 @@
         <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancel</button><button class="button button-primary" id="saveEntityButton" value="save">Save entity</button></div>
       </form>
     </dialog>
-    <script src="app.js?v=review-graph-1"></script>
+    <script src="app.js?v=graph-controls-2"></script>
   </body>
 </html>
