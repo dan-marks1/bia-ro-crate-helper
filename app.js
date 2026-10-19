@@ -147,15 +147,20 @@ function renderGraph() {
       } else if (!/^(https?:|urn:)/i.test(targetId)) dangling.push({ sourceId, targetId });
     }
   }
-  const primary = entities.filter(entity => entity !== root && ['biosample', 'protocol', 'channel'].includes(graphKind(entity)));
+  const primary = entities.filter(entity => entity !== root && ['biosample', 'protocol'].includes(graphKind(entity)));
+  const channels = entities.filter(entity => entity !== root && graphKind(entity) === 'channel');
   const datasets = entities.filter(entity => entity !== root && graphKind(entity) === 'dataset');
-  const tail = entities.filter(entity => entity !== root && graphKind(entity) !== 'dataset' && !primary.includes(entity));
-  const tiers = [[root], datasets, primary, tail].filter(row => row.length);
-  const tierY = tiers.map((_, index) => [62, 155, 260, 365][index]);
-  const tierStep = tiers.map(row => row.length === 1 ? 0 : (row.length > 10 ? 44 : row.length > 5 ? 74 : 116));
+  const tail = entities.filter(entity => entity !== root && graphKind(entity) !== 'dataset' && !primary.includes(entity) && !channels.includes(entity));
+  // Keep the overview hierarchical, but wrap large categories instead of
+  // squeezing dozens of labels into a single row (which made real crates unreadable).
+  const chunk = (items, size = 10) => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
+  const tiers = [[root], datasets, primary, ...chunk(channels), ...chunk(tail)].filter(row => row.length);
+  const rowGap = 82;
+  const tierY = tiers.map((_, index) => 76 + index * rowGap);
+  const tierStep = tiers.map(row => row.length <= 1 ? 0 : row.length > 8 ? 170 : row.length > 5 ? 180 : 196);
   const widths = tiers.map((row, index) => row.length <= 1 ? 0 : (row.length - 1) * tierStep[index]);
-  const width = Math.max(920, ...widths) + 100;
-  const height = Math.max(430, tierY[tiers.length - 1] + 65);
+  const width = Math.max(1100, ...widths) + 160;
+  const height = Math.max(460, tierY[tiers.length - 1] + 78);
   const positions = new Map();
   tiers.forEach((row, tierIndex) => {
     const step = tierStep[tierIndex] || 1;
