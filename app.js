@@ -19,6 +19,8 @@ const severityFilter = document.querySelector('#severityFilter');
 const referenceStatus = document.querySelector('#referenceStatus');
 const editDialog = document.querySelector('#editDialog');
 const entityDraft = document.querySelector('#entityDraft');
+const graphViewport = document.querySelector('#graphViewport');
+const graphSummary = document.querySelector('#graphSummary');
 
 const VALIDATOR_VERSION = '0.3.1';
 const ROC_VALIDATOR_VERSION = '0.8.1';
@@ -96,6 +98,123 @@ function nameOf(entity) {
   return Array.isArray(value) ? value.join(', ') : String(value ?? entity?.['@id'] ?? 'Unnamed entity');
 }
 
+function graphKind(entity) {
+  const typeText = entityTypeList(entity).join(' ').toLowerCase();
+  if (entity?.['@id'] === './' || typeText.includes('study')) return 'study';
+  if (typeText.includes('dataset')) return 'dataset';
+  if (typeText.includes('biosample')) return 'biosample';
+  if (typeText.includes('protocol')) return 'protocol';
+  if (typeText.includes('channel') || typeText.includes('signal')) return 'channel';
+  if (typeText.includes('file')) return 'file';
+  return 'other';
+}
+
+function entityReferences(value, found = new Set(), isRoot = true) {
+  if (Array.isArray(value)) {
+    value.forEach(item => entityReferences(item, found, false));
+  } else if (value && typeof value === 'object') {
+    if (!isRoot && typeof value['@id'] === 'string') found.add(value['@id']);
+    Object.entries(value).forEach(([key, item]) => {
+      if (key !== '@id') entityReferences(item, found, false);
+    });
+  }
+  return found;
+}
+
+function renderGraph() {
+  if (!graphViewport || !graphSummary) return;
+  const entities = graphOf();
+  if (!entities.length) {
+    graphSummary.textContent = 'Load a crate to view its entities and links.';
+    graphViewport.innerHTML = '<div class="graph-empty">The structure graph will appear here after you open a crate.</div>';
+    return;
+  }
+  const byId = new Map(entities.filter(entity => typeof entity?.['@id'] === 'string').map(entity => [entity['@id'], entity]));
+  const root = entities.find(entity => graphKind(entity) === 'study') || entities[0];
+  const links = [];
+  const inbound = new Set();
+  const dangling = [];
+  for (const entity of entities) {
+    const sourceId = entity?.['@id'];
+    if (!sourceId) continue;
+    for (const targetId of entityReferences(entity)) {
+      if (targetId === sourceId) continue;
+      if (byId.has(targetId)) {
+        links.push({ sourceId, targetId });
+        inbound.add(targetId);
+      } else if (!/^(https?:|urn:)/i.test(targetId)) dangling.push({ sourceId, targetId });
+    }
+  }
+  const tiers = [
+    [root],
+    entities.filter(entity => entity !== root && graphKind(entity) === 'dataset'),
+    entities.filter(entity => entity !== root && ['biosample', 'protocol', 'channel'].includes(graphKind(entity))),
+    entities.filter(entity => entity !== root && ['study', 'dataset', 'biosample', 'protocol', 'channel'].indexOf(graphKind(entity)) < 0)
+  ].filter(row => row.length);
+  const nodeW = 162;
+  const nodeH = 48;
+  const gapX = 36;
+  const gapY = 102;
+  const marginX = 28;
+  const marginY = 42;
+  const maxCount = Math.max(...tiers.map(row => row.length));
+  const width = Math.max(720, maxCount * (nodeW + gapX) + marginX * 2 - gapX);
+  const height = marginY * 2 + tiers.length * nodeH + (tiers.length - 1) * gapY;
+  const positions = new Map();
+  tiers.forEach((row, tierIndex) => {
+    const rowWidth = row.length * nodeW + Math.max(0, row.length - 1) * gapX;
+    const startX = Math.max(marginX, (width - rowWidth) / 2);
+    row.forEach((entity, itemIndex) => positions.set(entity['@id'], {
+      x: startX + itemIndex * (nodeW + gapX),
+      y: marginY + tierIndex * (nodeH + gapY),
+      entity
+    }));
+  });
+  const edgeMarkup = links.map(({ sourceId, targetId }) => {
+    const from = positions.get(sourceId);
+    const to = positions.get(targetId);
+    if (!from || !to) return '';
+    const x1 = from.x + nodeW / 2;
+    const y1 = from.y + (to.y > from.y ? nodeH : 0);
+    const x2 = to.x + nodeW / 2;
+    const y2 = to.y > from.y ? to.y : to.y + nodeH;
+    return `<path class="graph-edge" d="M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}" marker-end="url(#arrow)"/>`;
+  }).join('');
+  const danglingMarkup = dangling.map(({ sourceId }, index) => {
+    const from = positions.get(sourceId);
+    if (!from) return '';
+    const x = Math.min(width - 18, from.x + nodeW - 8 - (index % 4) * 7);
+    return `<circle class="dangling-point" cx="${x}" cy="${from.y + nodeH + 12 + (index % 3) * 4}" r="5"><title>Link target is not in @graph</title></circle>`;
+  }).join('');
+  const nodesMarkup = [...positions.entries()].map(([id, pos]) => {
+    const kind = graphKind(pos.entity);
+    const orphan = id !== root?.['@id'] && !inbound.has(id);
+    const label = nameOf(pos.entity);
+    const title = `${label} · ${id}`;
+    return `<g class="graph-node ${kind}${orphan ? ' orphan-node' : ''}" data-entity="${esc(id)}" role="button" tabindex="0" aria-label="Open ${esc(title)}"><title>${esc(title)}</title><rect x="${pos.x}" y="${pos.y}" width="${nodeW}" height="${nodeH}" rx="7"/><text x="${pos.x + nodeW / 2}" y="${pos.y + 20}" text-anchor="middle">${esc(label.length > 24 ? `${label.slice(0, 22)}…` : label)}</text><text class="node-id" x="${pos.x + nodeW / 2}" y="${pos.y + 36}" text-anchor="middle">${esc(id.length > 25 ? `${id.slice(0, 23)}…` : id)}</text></g>`;
+  }).join('');
+  graphSummary.textContent = `${entities.length} entities · ${links.length} links${dangling.length ? ` · ${dangling.length} unresolved link${dangling.length === 1 ? '' : 's'}` : ''}`;
+  graphViewport.innerHTML = `<svg class="crate-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="RO-Crate entity relationship graph"><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#aab3b8"/></marker></defs>${edgeMarkup}${danglingMarkup}${nodesMarkup}</svg>`;
+  graphViewport.querySelectorAll('[data-entity]').forEach(node => {
+    const jump = () => jumpToEntity(node.dataset.entity);
+    node.addEventListener('click', jump);
+    node.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); jump(); } });
+  });
+}
+
+function jumpToEntity(id) {
+  const bounds = findObjectBounds(editor.value, id);
+  if (!bounds) return;
+  const line = editor.value.slice(0, bounds.idAt).split('\n').length;
+  const rowHeight = parseFloat(getComputedStyle(editor).lineHeight) || 19.25;
+  editor.scrollTop = Math.max(0, (line - 4) * rowHeight);
+  const start = editor.value.lastIndexOf('\n', bounds.idAt) + 1;
+  const end = editor.value.indexOf('\n', bounds.idAt);
+  editor.focus();
+  editor.setSelectionRange(start, end < 0 ? editor.value.length : end);
+  cursorPosition.textContent = `Entity ${id} · line ${line}`;
+}
+
 function loadCrate(data, name, text = '', isDemo = false) {
   crate = data;
   fileListText = text;
@@ -114,6 +233,7 @@ function loadCrate(data, name, text = '', isDemo = false) {
   loadStatus.textContent = isDemo ? 'Demo crate loaded locally · run the official validator to see its findings.' : `${name} selected locally${text ? ' · file_list.tsv found' : ' · file_list.tsv not found'}`;
   jsonStatus.textContent = 'JSON parsed';
   renderLineNumbers();
+  renderGraph();
   renderIssues();
   updateDirty(false);
   setStatus('Crate ready. Choose Run validator to start the official BIA checks.');
@@ -124,25 +244,69 @@ function updateDirty(dirty) {
   editState.textContent = dirty ? '● Unsaved edit' : '● Up to date';
 }
 
-function updateLineForIssue(issue) {
-  const text = editor.value;
-  if (issue.line && issue.line > 0) return issue.line;
-  let offset = 0;
-  if (issue.entityId) {
-    const idNeedle = `"@id": ${JSON.stringify(issue.entityId)}`;
-    const idPosition = text.indexOf(idNeedle);
-    if (idPosition >= 0) offset = idPosition;
-    else {
-      const looseId = text.indexOf(JSON.stringify(issue.entityId));
-      if (looseId >= 0) offset = looseId;
+function findObjectBounds(text, id) {
+  const needle = `"@id": ${JSON.stringify(id)}`;
+  const idAt = text.indexOf(needle);
+  if (idAt < 0) return null;
+  let start = text.lastIndexOf('{', idAt);
+  if (start < 0) return null;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
     }
+    if (char === '"') quoted = true;
+    else if (char === '{') depth += 1;
+    else if (char === '}' && --depth === 0) return { start, end: i + 1, idAt };
   }
-  if (issue.property) {
-    const propertyNeedle = `"${issue.property}"`;
-    const propertyPosition = text.indexOf(propertyNeedle, offset);
-    if (propertyPosition >= 0) offset = propertyPosition;
+  return { start, end: text.length, idAt };
+}
+
+function propertyOffset(text, property, start = 0, end = text.length) {
+  if (!property) return -1;
+  const needle = `"${String(property)}"`;
+  let offset = start;
+  while (offset < end) {
+    const found = text.indexOf(needle, offset);
+    if (found < 0 || found >= end) return -1;
+    let cursor = found + needle.length;
+    while (/\s/.test(text[cursor] || '') && cursor < end) cursor += 1;
+    if (text[cursor] === ':') return found;
+    offset = found + 1;
   }
-  return text.slice(0, offset).split('\n').length;
+  return -1;
+}
+
+function locateIssueOffset(issue) {
+  const text = editor.value;
+  if (issue.line > 0) return text.split('\n').slice(0, issue.line - 1).join('\n').length;
+  const contextTerm = /(?:@context\s+term:\s*|JSON-LD context term\s+["'`])([^\s"'`]+)/i.exec(`${issue.location} ${issue.message}`)?.[1];
+  if (contextTerm) {
+    const contextStart = text.indexOf('"@context"');
+    const graphStart = text.indexOf('"@graph"', Math.max(0, contextStart));
+    const contextEnd = graphStart < 0 ? text.length : graphStart;
+    const termAt = propertyOffset(text, contextTerm, Math.max(0, contextStart), contextEnd);
+    if (termAt >= 0) return termAt;
+    if (contextStart >= 0) return contextStart;
+  }
+  const entityBounds = issue.entityId ? findObjectBounds(text, issue.entityId) : null;
+  if (entityBounds) {
+    const propAt = propertyOffset(text, issue.property, entityBounds.start, entityBounds.end);
+    return propAt >= 0 ? propAt : entityBounds.idAt;
+  }
+  const propAt = propertyOffset(text, issue.property);
+  if (propAt >= 0) return propAt;
+  return 0;
+}
+
+function updateLineForIssue(issue) {
+  return editor.value.slice(0, locateIssueOffset(issue)).split('\n').length;
 }
 
 function renderLineNumbers() {
@@ -162,7 +326,8 @@ function renderLineNumbers() {
 }
 
 function renderHighlights() {
-  issueHighlights.innerHTML = currentIssues.map(issue => {
+  const ordered = [...currentIssues].sort((a, b) => Number(a.id === selectedIssueId) - Number(b.id === selectedIssueId));
+  issueHighlights.innerHTML = ordered.map(issue => {
     const line = updateLineForIssue(issue);
     if (!line) return '';
     const active = issue.id === selectedIssueId ? ' active' : '';
@@ -286,6 +451,9 @@ function openEditDialog(issue) {
   document.querySelector('#dialogLocation').textContent = issue.location || (issue.entityId ? `Entity: ${issue.entityId}` : 'Location not identified automatically; review the metadata below.');
   entityDraft.value = JSON.stringify(target || crate, null, 2);
 
+  const fix = document.querySelector('#fixSuggestion');
+  fix.innerHTML = `<strong>Suggested next step</strong><p>${esc(suggestedFix(issue, target))}</p>`;
+
   const suggestion = document.querySelector('#referenceSuggestion');
   const reference = matchingReference(target);
   if (reference) {
@@ -305,6 +473,29 @@ function openEditDialog(issue) {
     suggestion.innerHTML = '';
   }
   editDialog.showModal();
+}
+
+function suggestedFix(issue, entity) {
+  const message = issue.message || '';
+  const contextTerm = /Invalid JSON-LD context term ['"`]([^'"`]+)['"`]/i.exec(message)?.[1];
+  if (contextTerm) {
+    return `In the @context, add an explicit @id mapping for “${contextTerm}”. If this is the schema.org property, change its definition to { "@id": "schema:${contextTerm}", "@container": "@set" }. Check the intended vocabulary before saving; the validator message is a guide, not an automatic edit.`;
+  }
+  if (/missing|required/i.test(message) && issue.property) {
+    const hasReference = Boolean(matchingReference(entity));
+    return `Add “${issue.property}” to ${entity ? `the entity ${entity['@id']}` : 'the relevant entity'} and supply the correct value for this study. ${hasReference ? 'A similar entity in your passing reference may provide a suitable pattern; review the reference suggestion below.' : 'A passing crate from the same study can help you choose the correct value.'} This helper does not invent identifiers, dates, or scientific metadata.`;
+  }
+  if (/dataset-satisfaction|profile/i.test(message)) {
+    return 'Review the dataset’s linked BioSample and protocol entities against the profile named in the finding. Add or correct the relationships only when they reflect the actual study; inspect the highlighted dataset entity and compare with a passing crate if available.';
+  }
+  if (/no image files|image files/i.test(message)) {
+    return 'Check that file_list.tsv contains the dataset’s image files and that the dataset links to those files. If the crate intentionally contains no images, review whether the selected BIA profile is appropriate.';
+  }
+  if (/unknown property|not declared/i.test(message)) {
+    return `Check the spelling and vocabulary mapping for “${issue.property || 'this property'}”. If the field is intentional, add or use the correct term mapping in @context; otherwise rename it to the intended RO-Crate/schema.org property.`;
+  }
+  if (issue.severity === 'info') return 'This is an informational validator note. Review the highlighted entity and use it as a metadata quality suggestion; it may not require a change.';
+  return 'Review the highlighted JSON location and the validator message. Correct the metadata only when the proposed change matches the study; a passing crate from the same study can provide a useful example.';
 }
 
 function applyEntityDraft() {
@@ -335,6 +526,7 @@ function applyEntityDraft() {
   }
   editor.value = JSON.stringify(crate, null, 2);
   renderLineNumbers();
+  renderGraph();
   updateDirty(true);
   validationIsCurrent = false;
   jsonStatus.textContent = 'Edited · run validation again';
@@ -349,8 +541,10 @@ function updateLocalParseStatus() {
   try {
     crate = JSON.parse(editor.value);
     jsonStatus.textContent = validationIsCurrent ? 'JSON parsed · validation current' : 'JSON parsed · validation may be out of date';
+    renderGraph();
   } catch {
     jsonStatus.textContent = 'Invalid JSON';
+    graphSummary.textContent = 'Fix the JSON syntax to update the structure graph.';
   }
 }
 

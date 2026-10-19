@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>BIA RO-Crate Fix Helper</title>
-    <link rel="stylesheet" href="styles.css?v=deps-off-1" />
+    <link rel="stylesheet" href="styles.css?v=review-graph-1" />
     <script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
   </head>
   <body>
@@ -19,8 +19,8 @@
       <section class="intro">
         <div>
           <p class="eyebrow">METADATA REVIEW</p>
-          <h1>Find the issue.<br /><span>Make the fix with confidence.</span></h1>
-          <p class="lede">Run the BIA RO-Crate validator, inspect each finding beside its JSON, and review edits before downloading your metadata.</p>
+          <h1>BIA RO-Crate Fix Helper</h1>
+          <p class="lede">Find the issue. Make the fix with confidence. Inspect each BIA validator finding beside its JSON, review suggested edits, and download your metadata.</p>
         </div>
       </section>
 
@@ -44,7 +44,7 @@
         <aside class="issues-panel">
           <div class="panel-heading">
             <div><p class="eyebrow">BIA VALIDATOR</p><h2>Findings <span class="count" id="issueCount">0</span></h2></div>
-            <button class="icon-button" id="refreshButton" type="button" aria-label="Run BIA validator" title="Run BIA validator">↻</button>
+            <button class="button button-primary run-button" id="refreshButton" type="button">Run validation</button>
           </div>
           <div class="validator-status" id="validatorStatus" role="status">Open a crate, then run validation.</div>
           <div class="issue-toolbar"><label for="severityFilter">Show</label><select id="severityFilter" aria-label="Filter findings"><option value="all">All findings</option><option value="critical">Critical</option><option value="error">Errors</option><option value="warning">Warnings</option><option value="info">Information</option></select></div>
@@ -85,6 +85,13 @@
         </section>
       </section>
 
+      <section class="structure-panel" aria-label="RO-Crate structure">
+        <div class="structure-heading"><div><p class="eyebrow">RO-CRATE OVERVIEW</p><h2>Structure</h2></div><span id="graphSummary">Load a crate to view its entities and links.</span></div>
+        <div class="graph-viewport" id="graphViewport"><div class="graph-empty">The structure graph will appear here after you open a crate.</div></div>
+        <div class="graph-legend" aria-label="Graph legend"><span><i class="study"></i>Study</span><span><i class="dataset"></i>Dataset</span><span><i class="biosample"></i>BioSample</span><span><i class="protocol"></i>Protocol</span><span><i class="channel"></i>Channel</span><span><i class="orphan"></i>Orphan</span><span><i class="dangling"></i>Dangling link</span></div>
+        <p class="graph-help">Select a node to jump to that entity in the JSON.</p>
+      </section>
+
       <section class="how-it-works">
         <div><strong>What happens when you validate?</strong><p>The official Python validator runs in your browser using WebAssembly. Its first use downloads the runtime and validator packages; crate files stay local and are not uploaded.</p></div>
         <a href="https://github.com/BioImage-Archive/bia-ro-crate-validator" target="_blank" rel="noreferrer">Validator source ↗</a>
@@ -97,6 +104,7 @@
         <div class="dialog-head"><div><p class="eyebrow">REVIEW FINDING</p><h2 id="dialogTitle">Suggested edit</h2></div><button class="close-button" value="cancel" aria-label="Close">×</button></div>
         <p id="dialogMessage" class="dialog-message"></p>
         <div class="dialog-location" id="dialogLocation"></div>
+        <div class="fix-suggestion" id="fixSuggestion"></div>
         <div id="referenceSuggestion" class="reference-suggestion" hidden></div>
         <label class="field-label" for="entityDraft">Edit this JSON entity</label>
         <textarea id="entityDraft" class="entity-draft" spellcheck="false" aria-label="Edit JSON entity"></textarea>
@@ -104,6 +112,6 @@
         <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancel</button><button class="button button-primary" id="saveEntityButton" value="save">Save entity</button></div>
       </form>
     </dialog>
-    <script src="app.js?v=parser-report-2"></script>
+    <script src="app.js?v=review-graph-1"></script>
   </body>
 </html>

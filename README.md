@@ -4,10 +4,12 @@ A small, independent test website for reviewing BIA RO-Crate validation findings
 
 ## Current features
 
-- BIA-inspired blue, white, and charcoal styling with a clear **In development · For testing only** banner. It does not use the BIA logo or spell out the archive name.
+- BIA Explorer-inspired white layout, green divider, blue controls, and a clear **In development · For testing only** banner. It does not use the BIA logo or spell out the archive name.
 - Select a crate folder containing `ro-crate-metadata.json` and, when present, `file_list.tsv`.
 - Run the official [`bia-ro-crate-validator`](https://github.com/BioImage-Archive/bia-ro-crate-validator) package (version 0.3.1) in the browser using [Pyodide 314.0.7](https://pyodide.org/). Required, recommended, and optional findings are shown by severity. Parsing failures are surfaced as errors instead of being reported as a clean validation.
-- Review a JSON entity in a dialog, make edits, undo them, and download the edited metadata.
+- Click a finding to highlight its JSON location. The helper scopes property searches to the referenced entity and handles JSON-LD context-term findings; findings without a precise machine-readable path fall back to the entity or context block.
+- Review a finding in a dialog with a suggested next step, edit the relevant JSON entity, undo edits, and download the edited metadata. Suggestions explain the likely correction without inventing study-specific values.
+- View a generated structure graph of the crate entities and their `@id` relationships. Nodes are grouped by entity type, orphan entities and unresolved links are marked, and clicking a node jumps to its JSON.
 - Load a passing crate as an optional reference. Similar entity types can provide missing fields as editable starting points; the tool does not copy changes until the user asks it to.
 - Includes a small demo crate. A golden example slot is present for a later example supplied by the curator.
 
