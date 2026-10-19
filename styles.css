@@ -119,13 +119,26 @@ main{max-width:1500px}
 .preflight-status{max-width:50%;color:#69757b;text-align:right;font-size:12px;font-weight:600}
 .preflight-status.error{color:#a43c39}.preflight-status.warning{color:#95601e}.preflight-status.success{color:#327b59}
 .finding-key{display:flex;flex-wrap:wrap;gap:8px;padding:10px 15px;border-bottom:1px solid #e4e7e9;background:#fbfcfc}
-.finding-key>span{display:grid;grid-template-columns:10px auto;align-items:center;column-gap:6px;row-gap:2px;min-width:150px;padding:5px 7px;border:1px solid #e8ecee;border-radius:3px;background:#fff}
+.finding-key{flex-wrap:nowrap;gap:14px;overflow-x:auto;white-space:nowrap}
+.finding-key>span{display:flex;flex:0 0 auto;align-items:center;gap:5px;min-width:0;padding:2px 0;border:0;background:transparent}
 .finding-key strong{font-size:10px;color:#38434a}
-.finding-key small{grid-column:2;color:#6e797f;font-size:9px;line-height:1.35}
+.finding-key small{color:#6e797f;font-size:9px;line-height:1.35}
 .severity-dot{width:8px;height:8px;border-radius:50%;grid-row:1;grid-column:1}
 .severity-dot.error{background:#c7504a}.severity-dot.warning{background:#d18c2c}.severity-dot.info{background:#6b91bf}
 .review-count-blocking{color:#a43c39}
 .review-count-nonblocking{margin-left:10px;color:#899298;font-size:14px;font-weight:500}
+#overallStatus{width:100%;max-width:none;margin:14px 0;padding:11px 13px;border:1px solid #e2e7e9;border-radius:4px;background:#f7f9fa;text-align:left}
+#overallStatus.success{border-color:#c9e5d2;background:#eef7f1;color:#246343}
+#overallStatus.warning{border-color:#eedda8;background:#fff8e5;color:#805e17}
+#overallStatus.error{border-color:#efcfcd;background:#fff0ef;color:#963c37}
+.topbar-actions{display:flex;align-items:center;gap:16px}
+.docs-dialog{width:min(560px,calc(100vw - 28px));padding:0;border:1px solid #cfd6da;border-radius:5px;box-shadow:0 20px 70px #17242f3b;color:var(--ink)}
+.docs-dialog::backdrop{background:#1d2730a3}
+.docs-dialog-shell{padding:20px}
+.docs-intro{margin:14px 0;color:#5f6c72;font-size:12px;line-height:1.6}
+.docs-link{display:flex;flex-direction:column;gap:5px;margin-top:10px;padding:13px;border:1px solid #dfe5e8;border-radius:4px;background:#fbfcfc;text-decoration:none}
+.docs-link strong{color:#2e3940;font-size:12px}
+.docs-link span{color:#647178;font-size:11px}
 .preflight-intro{max-width:940px;color:#5d6970;font-size:13px;line-height:1.65}
 .preflight-input-grid,.review-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}
 .preflight-input-card,.review-card{position:relative;padding:17px;border:1px solid #e0e5e7;border-radius:5px;background:#fbfcfc}

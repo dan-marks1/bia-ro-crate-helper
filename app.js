@@ -581,7 +581,7 @@ function renderWorkflowReview() {
   const validatorWarnings = currentIssues.filter(issue => issue.severity === 'warning').length;
   const fileErrors = fileListFindings.filter(item => item.severity === 'error').length;
   const fileWarnings = fileListFindings.filter(item => item.severity === 'warning').length;
-  const countMarkup = (blocking, nonBlocking) => `<span class="review-count-blocking">Block: ${blocking}</span><span class="review-count-nonblocking">Non-blocking: ${nonBlocking}</span>`;
+  const countMarkup = (blocking, nonBlocking) => `<span class="review-count-blocking">Blocking issues: ${blocking}</span><span class="review-count-nonblocking">Non-blocking: ${nonBlocking}</span>`;
   const validatorNonBlocking = currentIssues.length - validatorErrors;
   const fileNonBlocking = fileListFindings.length - fileErrors;
   const crateStatus = document.querySelector('#reviewCrateStatus');
@@ -595,11 +595,16 @@ function renderWorkflowReview() {
   const complete = validatorReady && fileListReady;
   const totalErrors = validatorErrors + fileErrors;
   const totalNonBlocking = validatorNonBlocking + fileNonBlocking;
-  overallStatus.className = `preflight-status ${complete && totalErrors === 0 ? totalNonBlocking ? 'warning' : 'success' : 'warning'}`;
-  overallStatus.innerHTML = !complete ? 'Checks incomplete' : `${!validationRunCompleted ? '<span class="review-count-nonblocking">Partial · </span>' : ''}${countMarkup(totalErrors, totalNonBlocking)}`;
-  document.querySelector('#overallSummary').textContent = complete
-    ? `Both stages have run. The official validator reported ${currentIssues.length} finding(s); the file-list checks reported ${fileListFindings.length} finding(s). Review each item and correct source metadata/files as needed.`
-    : `To complete the preflight, ${!validatorReady ? 'run the RO-Crate validator' : ''}${!validatorReady && !fileListReady ? ' and ' : ''}${!fileListReady ? 'load file_list.tsv and its inventory report' : ''}. You can still review either stage separately.`;
+  const successful = complete && validationRunCompleted && totalErrors === 0;
+  overallStatus.className = `preflight-status ${successful ? 'success' : complete ? 'error' : 'warning'}`;
+  overallStatus.innerHTML = successful
+    ? 'No blocking issues were found. The files should pass validation for submission.'
+    : !complete ? 'Checks incomplete' : `${!validationRunCompleted ? '<span class="review-count-nonblocking">Partial · </span>' : ''}${countMarkup(totalErrors, totalNonBlocking)}`;
+  document.querySelector('#overallSummary').textContent = successful
+    ? `${totalNonBlocking ? `There are ${totalNonBlocking} non-blocking finding(s) above for your review.` : 'No non-blocking findings were reported.'}`
+    : complete
+      ? `Both stages have run. The official validator reported ${currentIssues.length} finding(s); the file-list checks reported ${fileListFindings.length} finding(s). Review each item and correct source metadata/files as needed.`
+      : `To complete the preflight, ${!validatorReady ? 'run the RO-Crate validator' : ''}${!validatorReady && !fileListReady ? ' and ' : ''}${!fileListReady ? 'load file_list.tsv and its inventory report' : ''}. You can still review either stage separately.`;
 }
 
 function downloadPreflightReport() {
@@ -1466,6 +1471,12 @@ downloadButton.addEventListener('click', () => {
   }
 });
 undoButton.addEventListener('click', undoLastEdit);
+const documentationDialog = document.querySelector('#documentationDialog');
+document.querySelector('#documentationButton').addEventListener('click', () => documentationDialog.showModal());
+document.querySelector('#closeDocumentationButton').addEventListener('click', () => documentationDialog.close());
+documentationDialog.addEventListener('click', event => {
+  if (event.target === documentationDialog) documentationDialog.close();
+});
 document.addEventListener('keydown', event => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && history.length && !editDialog.open) {
     event.preventDefault();
