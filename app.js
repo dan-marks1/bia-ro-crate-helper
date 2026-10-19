@@ -193,7 +193,7 @@ function renderGraph() {
     const direction = to.y >= from.y ? 1 : -1;
     const y1 = from.y + direction * 15;
     const y2 = to.y - direction * 15;
-    return `<path class="graph-edge" d="M ${from.x} ${y1} C ${from.x} ${(y1 + y2) / 2}, ${to.x} ${(y1 + y2) / 2}, ${to.x} ${y2}" marker-end="url(#arrow)"/>`;
+    return `<path class="graph-edge" data-source="${esc(sourceId)}" data-target="${esc(targetId)}" d="M ${from.x} ${y1} C ${from.x} ${(y1 + y2) / 2}, ${to.x} ${(y1 + y2) / 2}, ${to.x} ${y2}" marker-end="url(#arrow)"/>`;
   }).join('');
   const danglingMarkup = dangling.map(({ sourceId, targetId }, index) => {
     const from = positions.get(sourceId);
@@ -221,9 +221,24 @@ function renderGraph() {
   graphViewport.innerHTML = `<svg id="crateGraph" class="crate-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="RO-Crate entity relationship graph"><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#aab3b8"/></marker></defs><g id="graphTransform">${edgeMarkup}${danglingMarkup}${nodesMarkup}</g></svg>`;
   document.querySelector('#exportGraphButton').disabled = false;
   applyGraphCamera();
+  const traceLinks = selectedId => {
+    const svg = graphViewport.querySelector('#crateGraph');
+    svg?.classList.toggle('tracing', Boolean(selectedId));
+    svg?.querySelectorAll('.graph-edge').forEach(edge => {
+      edge.classList.toggle('related', Boolean(selectedId) && (edge.dataset.source === selectedId || edge.dataset.target === selectedId));
+    });
+    svg?.querySelectorAll('.graph-node').forEach(node => {
+      const connected = Boolean(selectedId) && links.some(link => (link.sourceId === selectedId && link.targetId === node.dataset.entity) || (link.targetId === selectedId && link.sourceId === node.dataset.entity));
+      node.classList.toggle('is-related', connected);
+    });
+  };
   graphViewport.querySelectorAll('[data-entity]').forEach(node => {
     const jump = () => jumpToEntity(node.dataset.entity);
     node.addEventListener('click', jump);
+    node.addEventListener('mouseenter', () => traceLinks(node.dataset.entity));
+    node.addEventListener('mouseleave', () => traceLinks(null));
+    node.addEventListener('focus', () => traceLinks(node.dataset.entity));
+    node.addEventListener('blur', () => traceLinks(null));
     node.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); jump(); } });
   });
 }
@@ -252,13 +267,15 @@ async function exportGraphPng() {
   const clone = svg.cloneNode(true);
   const group = clone.querySelector('#graphTransform');
   group?.removeAttribute('transform');
+  clone.classList.remove('tracing');
+  clone.querySelectorAll('.related,.is-related').forEach(element => element.classList.remove('related', 'is-related'));
   const { width, height } = svg.viewBox.baseVal;
   const pixelScale = Math.min(3, 10000 / Math.max(width, height));
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('width', Math.round(width * pixelScale));
   clone.setAttribute('height', Math.round(height * pixelScale));
   const svgStyles = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-  svgStyles.textContent = '.graph-edge{fill:none;stroke:#c4cbd0;stroke-width:1.6}.graph-dangling-edge{fill:none;stroke:#d53e39;stroke-width:2;stroke-dasharray:5 3}.dangling-point{fill:#fff;stroke:#d53e39;stroke-width:2;stroke-dasharray:3 2}.graph-node .node-shape{stroke-width:2}.graph-node.study .node-shape{fill:#3f73b5}.graph-node.dataset .node-shape{fill:#117991}.graph-node.biosample .node-shape{fill:#25985a}.graph-node.protocol .node-shape{fill:#8140da}.graph-node.channel .node-shape{fill:#12988b}.graph-node.file .node-shape,.graph-node.other .node-shape{fill:#758084}.graph-node.orphan-node .node-shape{stroke:#e5a12b;stroke-dasharray:5 3}.node-label{fill:#2b3438;font:600 11px Arial,sans-serif}.node-id{fill:#69757b;font:8px monospace}';
+  svgStyles.textContent = '.graph-edge{fill:none;stroke:#aeb9c0;stroke-width:1.35;opacity:.2}.graph-dangling-edge{fill:none;stroke:#d53e39;stroke-width:2;stroke-dasharray:5 3}.dangling-point{fill:#fff;stroke:#d53e39;stroke-width:2;stroke-dasharray:3 2}.graph-node .node-shape{stroke-width:2}.graph-node.study .node-shape{fill:#3f73b5}.graph-node.dataset .node-shape{fill:#117991}.graph-node.biosample .node-shape{fill:#25985a}.graph-node.protocol .node-shape{fill:#8140da}.graph-node.channel .node-shape{fill:#12988b}.graph-node.file .node-shape,.graph-node.other .node-shape{fill:#758084}.graph-node.orphan-node .node-shape{stroke:#e5a12b;stroke-dasharray:5 3}.node-label{fill:#2b3438;font:600 11px Arial,sans-serif}.node-id{fill:#69757b;font:8px monospace;opacity:0}';
   clone.insertBefore(svgStyles, clone.firstChild);
   const svgBlob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' });
   const objectUrl = URL.createObjectURL(svgBlob);
@@ -599,11 +616,11 @@ function renderWorkflowReview() {
   overallStatus.className = `preflight-status ${successful ? 'success' : complete ? 'error' : 'warning'}`;
   overallStatus.innerHTML = successful
     ? 'No blocking issues were found. The files should pass validation for submission.'
-    : !complete ? 'Checks incomplete' : `${!validationRunCompleted ? '<span class="review-count-nonblocking">Partial · </span>' : ''}${countMarkup(totalErrors, totalNonBlocking)}`;
+    : !complete ? 'Checks incomplete' : !validationRunCompleted ? 'Validation stopped before all checks finished. Review the partial findings.' : 'Validation will likely fail. Please address the blocking errors before submission.';
   document.querySelector('#overallSummary').textContent = successful
     ? `${totalNonBlocking ? `There are ${totalNonBlocking} non-blocking finding(s) above for your review.` : 'No non-blocking findings were reported.'}`
     : complete
-      ? `Both stages have run. The official validator reported ${currentIssues.length} finding(s); the file-list checks reported ${fileListFindings.length} finding(s). Review each item and correct source metadata/files as needed.`
+      ? `${totalErrors} blocking issue(s) were reported across the RO-Crate and file-list checks, alongside ${totalNonBlocking} non-blocking finding(s). Review the counts in each panel and correct the source metadata/files as needed.`
       : `To complete the preflight, ${!validatorReady ? 'run the RO-Crate validator' : ''}${!validatorReady && !fileListReady ? ' and ' : ''}${!fileListReady ? 'load file_list.tsv and its inventory report' : ''}. You can still review either stage separately.`;
 }
 
