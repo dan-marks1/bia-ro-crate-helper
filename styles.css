@@ -132,6 +132,14 @@ main{max-width:1500px}
 .script-instructions a{color:#3f73b5;font-weight:700}
 .terminal-setup{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0;color:#66737a;font-size:11px}
 .terminal-setup a{font-weight:600}
+.codon-path-builder{display:grid;gap:9px;margin:14px 0;padding:14px;border:1px solid #dce3e7;border-radius:4px;background:#fff}
+.codon-path-builder>label{color:#3d4a51;font-size:12px;font-weight:700}
+.codon-path-builder>input{width:100%;min-width:0;padding:10px 11px;border:1px solid #bfc9ce;border-radius:4px;color:#26343c;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}
+.generated-command{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;color:#647078;font-size:10px}
+.generated-command>span:first-child{grid-column:1/-1;font-weight:700}
+.generated-command code{min-width:0;padding:9px;overflow:auto;border-radius:4px;background:#f2f5f6;color:#26343c;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}
+.generated-command #copyCodonRunStatus{grid-column:1/-1;color:#327b59}
+.codon-path-builder>p{margin:2px 0 0;color:#66737a;font-size:11px}
 .remote-copy-instructions{margin:12px 0;padding:10px 12px;border:1px solid #e0e5e7;border-radius:4px;background:#fff}
 .remote-copy-instructions summary{font-size:11px}
 .remote-copy-instructions pre{max-width:100%;overflow:auto;padding:11px;background:#f4f6f7;color:#334149;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}

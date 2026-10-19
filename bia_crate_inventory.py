@@ -2,8 +2,8 @@
 """Create a JSON inventory of files in a selected RO-Crate directory.
 
 The script reads names, relative paths, and filesystem sizes only. It does not
-open the crate's data files. Set CRATE_DIR below, then run this script from
-any directory; the report is written in the selected crate folder.
+open the crate's data files. Set CRATE_DIR below or pass --directory. The
+report is written to the current working directory.
 """
 
 from __future__ import annotations
@@ -78,12 +78,12 @@ def create_inventory(root: Path, output: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, default=CRATE_DIR, help="submission directory to inventory (default: CRATE_DIR in this script)")
-    parser.add_argument("--output", type=Path, help=f"report path (default: <submission directory>/{OUTPUT_NAME})")
+    parser.add_argument("--output", type=Path, help="report path (default: <crate-name>_file_inventory.json in the current directory)")
     args = parser.parse_args()
     root = args.directory.expanduser()
-    output = args.output or root / OUTPUT_NAME
+    output = args.output or Path.cwd() / f"{root.name}_file_inventory.json"
     if not output.is_absolute():
-        output = root / output
+        output = Path.cwd() / output
     try:
         report = create_inventory(root, output)
         output.parent.mkdir(parents=True, exist_ok=True)

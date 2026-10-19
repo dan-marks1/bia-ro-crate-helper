@@ -391,7 +391,7 @@ function renderDirectoryTree(report) {
     for (let index = 1; index < parts.length; index += 1) directories.add(parts.slice(0, index).join('/'));
   }
   const entries = [...directories].map(path => ({ path, directory: true }));
-  for (const file of report.files) entries.push({ path: String(file?.path || ''), directory: false, size: Number(file?.size_bytes) });
+  for (const file of report.files) entries.push({ path: String(file?.path || ''), directory: false, size: Number(file?.size_bytes ?? file?.size) });
   entries.sort((a, b) => a.path.localeCompare(b.path) || Number(b.directory) - Number(a.directory));
   for (const entry of entries.slice(0, 700)) {
     const depth = Math.max(0, entry.path.split('/').length - (entry.directory ? 1 : 1));
@@ -499,12 +499,13 @@ function renderFileListChecks() {
   const inventoryPaths = new Map();
   if (inventoryLoadError) add('error', inventoryLoadError);
   if (inventoryReport) {
-    if (inventoryReport.format !== 'bia-ro-crate-file-inventory' || Number(inventoryReport.version) !== 1) add('error', 'The selected JSON is not a supported BIA file inventory report.');
+    if (inventoryReport.format !== 'bia-ro-crate-file-inventory' || (inventoryReport.version !== undefined && Number(inventoryReport.version) !== 1)) add('error', 'The selected JSON is not a supported BIA file inventory report.');
+    else if (inventoryReport.version === undefined) add('warning', 'This inventory report uses the earlier format without a version marker.');
     if (!Array.isArray(inventoryReport.files)) add('error', 'The inventory report has no files array.');
     else {
       for (const [index, file] of inventoryReport.files.entries()) {
         const checked = safeManifestPath(file?.path);
-        const size = Number(file?.size_bytes);
+        const size = Number(file?.size_bytes ?? file?.size);
         if (checked.error) { add('error', `Inventory entry ${index + 1}: ${checked.error}.`); continue; }
         if (!Number.isSafeInteger(size) || size < 0) { add('error', `Inventory entry ${index + 1} (${checked.path}) has an invalid byte size.`); continue; }
         if (inventoryPaths.has(checked.path)) add('error', `Inventory path “${checked.path}” occurs more than once.`);
@@ -537,7 +538,10 @@ function renderFileListChecks() {
       const declaredSize = manifestSizeByPath.get(path);
       if (declaredSize !== null && declaredSize !== undefined && declaredSize !== actualSize) { mismatched += 1; add('error', `Byte size differs for ${path}: manifest has ${declaredSize}; inventory has ${actualSize}.`); }
     }
-    for (const path of inventoryPaths.keys()) if (!manifestByPath.has(path)) { extras += 1; if (extras <= 20) add('warning', `Inventory file is not listed in file_list.tsv: ${path}`); }
+    for (const path of inventoryPaths.keys()) {
+      if (['file_list.tsv', 'ro-crate-metadata.json'].includes(path.toLowerCase())) continue;
+      if (!manifestByPath.has(path)) { extras += 1; if (extras <= 20) add('warning', `Inventory file is not listed in file_list.tsv: ${path}`); }
+    }
     if (extras > 20) add('warning', `${extras - 20} more inventory files are not listed in file_list.tsv.`);
   }
 
@@ -1311,11 +1315,40 @@ document.querySelector('#copyCodonSetupButton').addEventListener('click', async 
     if (script.split(/\r?\n/).includes(delimiter)) throw new Error('Could not safely prepare the terminal command.');
     const command = `cat > ~/bia_crate_inventory.py <<'${delimiter}'\n${script}\n${delimiter}\nchmod +x ~/bia_crate_inventory.py\n`;
     await navigator.clipboard.writeText(command);
-    status.textContent = 'Copied. Paste into the Codon shell prompt; then edit the CRATE_DIR line.';
+    status.textContent = 'Copied. Paste into the Codon shell prompt, then use the generated run command below.';
   } catch (error) {
     status.textContent = `Could not copy automatically: ${error.message} Use “Download script instead”, then copy it to Codon with scp.`;
   } finally {
     button.disabled = false;
+  }
+});
+const codonDirectoryInput = document.querySelector('#codonDirectoryInput');
+const codonRunCommand = document.querySelector('#codonRunCommand');
+const codonScpCommand = document.querySelector('#codonScpCommand');
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+function updateCodonCommands() {
+  const directory = codonDirectoryInput.value.trim().replace(/\/$/, '');
+  const baseName = directory.split('/').filter(Boolean).at(-1) || 'crate';
+  const reportName = `${baseName}_file_inventory.json`;
+  codonRunCommand.textContent = directory
+    ? `cd ~ && python3 ~/bia_crate_inventory.py --directory ${shellQuote(directory)}`
+    : 'Enter a directory path above.';
+  codonScpCommand.textContent = directory
+    ? `scp marks@codon-slurm-login-01:~/${reportName} ~/Downloads/`
+    : 'Enter a directory path above.';
+  document.querySelector('#copyCodonRunButton').disabled = !directory;
+}
+codonDirectoryInput.addEventListener('input', updateCodonCommands);
+updateCodonCommands();
+document.querySelector('#copyCodonRunButton').addEventListener('click', async () => {
+  const status = document.querySelector('#copyCodonRunStatus');
+  try {
+    await navigator.clipboard.writeText(codonRunCommand.textContent);
+    status.textContent = 'Copied to clipboard.';
+  } catch (error) {
+    status.textContent = `Could not copy automatically: ${error.message}`;
   }
 });
 fileListInput.addEventListener('change', async event => {
