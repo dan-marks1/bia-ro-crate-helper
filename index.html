@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>BIA RO-Crate Fix Helper</title>
-    <link rel="stylesheet" href="styles.css?v=graph-controls-2" />
+    <link rel="stylesheet" href="styles.css?v=workflow-inventory-1" />
     <script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
   </head>
   <body>
@@ -24,6 +24,13 @@
         </div>
       </section>
 
+      <nav class="workflow-steps" aria-label="Submission checking steps">
+        <button class="workflow-step active" type="button" data-workflow-step="crate" aria-current="step"><span>1</span><strong>RO-Crate</strong></button>
+        <button class="workflow-step" type="button" data-workflow-step="files"><span>2</span><strong>File list</strong></button>
+        <button class="workflow-step" type="button" data-workflow-step="review"><span>3</span><strong>Review</strong></button>
+      </nav>
+
+      <section class="workflow-panel" data-workflow-panel="crate">
       <section class="load-panel" id="loadPanel">
         <div class="load-copy">
           <div class="upload-icon" aria-hidden="true">↑</div>
@@ -101,6 +108,68 @@
         <div><strong>What happens when you validate?</strong><p>The official Python validator runs in your browser using WebAssembly. Its first use downloads the runtime and validator packages; crate files stay local and are not uploaded.</p></div>
         <a href="https://github.com/BioImage-Archive/bia-ro-crate-validator" target="_blank" rel="noreferrer">Validator source ↗</a>
       </section>
+      <div class="workflow-actions"><span>Step 1 of 3</span><button class="button button-primary" type="button" data-go-step="files">Continue to file list checks →</button></div>
+      </section>
+
+      <section class="workflow-panel" data-workflow-panel="files" hidden>
+        <section class="preflight-panel">
+          <div class="preflight-heading"><div><p class="eyebrow">STEP 2 · FILE LIST</p><h2>Check the manifest against the data folder</h2></div><span id="fileListStatus" class="preflight-status">Waiting for files</span></div>
+          <p class="preflight-intro">Load <code>file_list.tsv</code> and the inventory report made by the downloadable Python script. The browser compares paths and byte sizes; it never receives the data files themselves.</p>
+
+          <div class="preflight-input-grid">
+            <article class="preflight-input-card">
+              <span class="preflight-number">A</span><h3>File list</h3>
+              <p id="fileListSourceStatus">No file list loaded. It may already be included with the RO-Crate folder.</p>
+              <label class="button button-secondary button-small" for="fileListInput">Choose file_list.tsv</label>
+              <input id="fileListInput" type="file" accept=".tsv,text/tab-separated-values,text/plain" hidden />
+            </article>
+            <article class="preflight-input-card">
+              <span class="preflight-number">B</span><h3>File inventory report</h3>
+              <p id="inventoryStatus">Run the script in the crate directory, then choose its JSON report.</p>
+              <label class="button button-primary button-small" for="inventoryInput">Choose inventory report</label>
+              <input id="inventoryInput" type="file" accept=".json,application/json" hidden />
+            </article>
+          </div>
+
+          <details class="script-instructions" open>
+            <summary>Get the inventory script and run it</summary>
+            <ol>
+              <li>Download <a href="bia_crate_inventory.py" download="bia_crate_inventory.py">bia_crate_inventory.py</a>.</li>
+              <li>Copy it into the submission folder containing <code>file_list.tsv</code> and <code>ro-crate-metadata.json</code>.</li>
+              <li>In a terminal, change to that folder and run: <code>python3 bia_crate_inventory.py</code>. It creates <code>bia-file-inventory.json</code>.</li>
+              <li>If the data is on Codon, copy the JSON report back to the computer running this website, then select it above.</li>
+            </ol>
+            <details class="remote-copy-instructions"><summary>Example: run it on Codon and copy the report back</summary><pre>scp ~/Downloads/bia_crate_inventory.py marks@codon-slurm-login-01:~
+ssh marks@codon-slurm-login-01
+cd /path/to/submission-folder
+python3 ~/bia_crate_inventory.py
+exit
+scp marks@codon-slurm-login-01:/path/to/submission-folder/bia-file-inventory.json ~/Downloads/</pre><p>Replace <code>/path/to/submission-folder</code> with the directory that contains the crate files. Use the same path in both <code>cd</code> and the final <code>scp</code> command.</p></details>
+            <p>The script inventories relative paths and file sizes only. It does not read data-file contents, change files, or connect to a server. Regenerate the report after changing the folder.</p>
+          </details>
+
+          <p id="fileListSummary" class="preflight-summary">Load both files to run the file-list checks.</p>
+          <div id="fileListMetrics" class="preflight-metrics"></div>
+          <ul id="fileListFindings" class="preflight-findings"><li class="info">Checks include required columns, schema definitions, dataset references, duplicate and unsafe paths, missing or extra files, and size mismatches.</li></ul>
+          <details id="directoryTreeDetails" class="directory-tree" hidden><summary id="directoryTreeSummary">Directory structure</summary><pre id="directoryTree"></pre></details>
+        </section>
+        <div class="workflow-actions"><button class="button button-secondary" type="button" data-go-step="crate">← Back to RO-Crate</button><span>Step 2 of 3</span><button class="button button-primary" type="button" data-go-step="review">Review all results →</button></div>
+      </section>
+
+      <section class="workflow-panel" data-workflow-panel="review" hidden>
+        <section class="review-panel">
+          <div class="preflight-heading"><div><p class="eyebrow">STEP 3 · REVIEW</p><h2>Submission preflight summary</h2></div><span id="overallStatus" class="preflight-status">Not ready to review</span></div>
+          <p id="overallSummary" class="preflight-intro">Complete the RO-Crate and file-list checks to see a combined summary.</p>
+          <div class="review-grid">
+            <article class="review-card"><p class="eyebrow">RO-CRATE VALIDATOR</p><strong id="reviewCrateStatus">Not run</strong><p id="reviewCrateDetail">Load an RO-Crate and run validation.</p><button class="button button-secondary button-small" type="button" data-go-step="crate">Review RO-Crate findings</button></article>
+            <article class="review-card"><p class="eyebrow">FILE LIST</p><strong id="reviewFileStatus">Not checked</strong><p id="reviewFileDetail">Load a file list and inventory report.</p><button class="button button-secondary button-small" type="button" data-go-step="files">Review file-list findings</button></article>
+          </div>
+          <div class="review-downloads"><button class="button button-primary" id="downloadPreflightButton" type="button" disabled>Download preflight report</button><button class="button button-secondary" id="downloadMetadataReviewButton" type="button" disabled>Download edited RO-Crate JSON</button></div>
+          <p class="preflight-note">A generated inventory report reflects the folder at the time the script ran. Regenerate it if files change before submission.</p>
+        </section>
+        <div class="workflow-actions"><button class="button button-secondary" type="button" data-go-step="files">← Back to file list</button><span>Step 3 of 3</span></div>
+      </section>
+
       <footer><span>BIA RO-Crate Fix Helper · test website</span><span>Use the validator as the source of truth</span></footer>
     </main>
 
@@ -117,6 +186,6 @@
         <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancel</button><button class="button button-primary" id="saveEntityButton" value="save">Save entity</button></div>
       </form>
     </dialog>
-    <script src="app.js?v=graph-controls-2"></script>
+    <script src="app.js?v=workflow-inventory-1"></script>
   </body>
 </html>

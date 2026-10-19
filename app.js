@@ -22,6 +22,14 @@ const editDialog = document.querySelector('#editDialog');
 const entityDraft = document.querySelector('#entityDraft');
 const graphViewport = document.querySelector('#graphViewport');
 const graphSummary = document.querySelector('#graphSummary');
+const fileListInput = document.querySelector('#fileListInput');
+const inventoryInput = document.querySelector('#inventoryInput');
+const fileListSourceStatus = document.querySelector('#fileListSourceStatus');
+const inventoryStatus = document.querySelector('#inventoryStatus');
+const fileListStatus = document.querySelector('#fileListStatus');
+const fileListSummary = document.querySelector('#fileListSummary');
+const fileListMetrics = document.querySelector('#fileListMetrics');
+const fileListFindingsElement = document.querySelector('#fileListFindings');
 
 const VALIDATOR_VERSION = '0.3.1';
 const ROC_VALIDATOR_VERSION = '0.8.1';
@@ -32,6 +40,11 @@ const crateRoot = '/home/pyodide/bia-helper-crate';
 let crate = null;
 let fileListText = '';
 let fileListPath = 'file_list.tsv';
+let fileListName = '';
+let inventoryReport = null;
+let inventoryReportName = '';
+let inventoryLoadError = '';
+let fileListFindings = [];
 let currentName = '';
 let currentIssues = [];
 let selectedIssueId = null;
@@ -39,6 +52,7 @@ let referenceCrate = null;
 let history = [];
 let pyodidePromise = null;
 let validationIsCurrent = false;
+let validationRunCompleted = false;
 let dialogEntityId = null;
 let dialogEditsWholeCrate = false;
 let debounceTimer = null;
@@ -295,6 +309,10 @@ function jumpToEntity(id) {
 function loadCrate(data, name, text = '', isDemo = false) {
   crate = data;
   fileListText = text;
+  fileListName = text ? 'file_list.tsv' : '';
+  inventoryReport = null;
+  inventoryReportName = '';
+  inventoryLoadError = '';
   fileListPath = declaredFileListPath(data);
   currentName = name;
   history = [];
@@ -302,6 +320,7 @@ function loadCrate(data, name, text = '', isDemo = false) {
   selectedIssueId = null;
   currentIssues = [];
   validationIsCurrent = false;
+  validationRunCompleted = false;
   graphCamera = { scale: 1, x: 0, y: 0 };
   editor.value = JSON.stringify(crate, null, 2);
   editor.disabled = false;
@@ -313,8 +332,284 @@ function loadCrate(data, name, text = '', isDemo = false) {
   renderLineNumbers();
   renderGraph();
   renderIssues();
+  renderFileListChecks();
+  renderWorkflowReview();
   updateDirty(false);
   setStatus('Crate ready. Run validation when you are ready.');
+}
+
+function parseTsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') { field += '"'; index += 1; }
+      else if (char === '"') quoted = false;
+      else field += char;
+    } else if (char === '"' && field === '') quoted = true;
+    else if (char === '\t') { row.push(field); field = ''; }
+    else if (char === '\n') { row.push(field.replace(/\r$/, '')); rows.push(row); row = []; field = ''; }
+    else field += char;
+  }
+  if (field.length || row.length) { row.push(field.replace(/\r$/, '')); rows.push(row); }
+  return rows;
+}
+
+function safeManifestPath(raw) {
+  const value = String(raw ?? '').trim().replace(/\\/g, '/');
+  if (!value) return { path: '', error: 'filepath is empty' };
+  if (value.startsWith('/') || /^[a-z]:\//i.test(value)) return { path: '', error: `filepath must be relative: ${value}` };
+  const parts = value.split('/').filter(part => part && part !== '.');
+  if (parts.includes('..')) return { path: '', error: `filepath must not escape the crate directory: ${value}` };
+  const path = parts.join('/');
+  return path ? { path, error: '' } : { path: '', error: `filepath is not a file path: ${value}` };
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return 'unknown';
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ['kB', 'MB', 'GB', 'TB'];
+  let size = bytes;
+  let unit = -1;
+  while (size >= 1000 && unit < units.length - 1) { size /= 1000; unit += 1; }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unit]}`;
+}
+
+function renderDirectoryTree(report) {
+  const detail = document.querySelector('#directoryTreeDetails');
+  const summary = document.querySelector('#directoryTreeSummary');
+  const tree = document.querySelector('#directoryTree');
+  if (!Array.isArray(report?.files)) { detail.hidden = true; return; }
+  const lines = [];
+  const directories = new Set(Array.isArray(report.directories) ? report.directories.filter(path => typeof path === 'string' && path && !path.startsWith('/') && !path.split('/').includes('..')) : []);
+  for (const file of report.files) {
+    const path = String(file?.path || '');
+    const parts = path.split('/').filter(Boolean);
+    for (let index = 1; index < parts.length; index += 1) directories.add(parts.slice(0, index).join('/'));
+  }
+  const entries = [...directories].map(path => ({ path, directory: true }));
+  for (const file of report.files) entries.push({ path: String(file?.path || ''), directory: false, size: Number(file?.size_bytes) });
+  entries.sort((a, b) => a.path.localeCompare(b.path) || Number(b.directory) - Number(a.directory));
+  for (const entry of entries.slice(0, 700)) {
+    const depth = Math.max(0, entry.path.split('/').length - (entry.directory ? 1 : 1));
+    const label = entry.directory ? `${entry.path.split('/').at(-1)}/` : `${entry.path.split('/').at(-1)}  (${formatBytes(entry.size)})`;
+    lines.push(`${'  '.repeat(depth)}${label}`);
+  }
+  if (entries.length > 700) lines.push(`… ${entries.length - 700} more entries`);
+  tree.textContent = lines.join('\n') || 'No data files or directories were listed.';
+  summary.textContent = `Directory structure · ${report.file_count ?? report.files.length} files · ${report.directory_count ?? directories.size} folders`;
+  detail.hidden = false;
+}
+
+function renderFileListChecks() {
+  const findings = [];
+  const add = (severity, message) => findings.push({ severity, message });
+  const loaded = Boolean(fileListText.trim());
+  const rows = parseTsv(fileListText || '');
+  const headers = (rows.shift() || []).map(header => header.trim());
+  const dataRows = rows.map((cells, index) => ({ cells, line: index + 2 })).filter(item => item.cells.some(cell => cell.trim()));
+  const headerIndexes = new Map();
+  headers.forEach((header, index) => {
+    const key = header.toLowerCase();
+    if (headerIndexes.has(key)) add('error', `Duplicate file list column “${header}”.`);
+    else headerIndexes.set(key, index);
+  });
+  if (loaded) for (const required of ['filepath', 'dataset', 'type']) if (!headerIndexes.has(required)) add('error', `Required column “${required}” is missing from file_list.tsv.`);
+  const malformedRows = dataRows.filter(item => item.cells.length !== headers.length);
+  malformedRows.slice(0, 12).forEach(item => add('error', `Row ${item.line} has ${item.cells.length} values for ${headers.length} columns.`));
+  if (malformedRows.length > 12) add('error', `${malformedRows.length - 12} more rows have an unexpected number of values.`);
+
+  const graph = graphOf();
+  const fileListEntity = graph.find(entity => entityTypeList(entity).some(type => type.toLowerCase().endsWith('filelist')));
+  const schemaId = fileListEntity?.tableSchema?.['@id'];
+  const schema = graph.find(entity => entity?.['@id'] === schemaId);
+  const schemaColumns = Array.isArray(schema?.column) ? schema.column : Array.isArray(schema?.columns) ? schema.columns : [];
+  const columnById = new Map(graph.filter(entity => entityTypeList(entity).some(type => type.toLowerCase().endsWith('column'))).map(entity => [entity['@id'], entity]));
+  const schemaHeaders = new Set(schemaColumns.map(ref => columnById.get(ref?.['@id'])?.columnName).filter(Boolean).map(name => String(name).trim().toLowerCase()));
+  if (crate && loaded && !schemaColumns.length) add('warning', 'The RO-Crate file-list schema has no column definitions to compare with the TSV.');
+  if (crate && loaded) {
+    for (const header of headers) if (header && schemaHeaders.size && !schemaHeaders.has(header.toLowerCase())) add('error', `Column “${header}” is not defined in the RO-Crate file-list schema.`);
+    for (const header of schemaHeaders) if (!headerIndexes.has(header)) add('warning', `The RO-Crate schema defines “${header}”, but it is absent from file_list.tsv.`);
+  }
+
+  const pathIndex = headerIndexes.get('filepath');
+  const datasetIndex = headerIndexes.get('dataset');
+  const typeIndex = headerIndexes.get('type');
+  const sizeHeader = ['size_in_bytes', 'size_bytes', 'file_size_bytes', 'filesize_bytes'].find(name => headerIndexes.has(name));
+  const sizeIndex = sizeHeader ? headerIndexes.get(sizeHeader) : undefined;
+  const labelIndex = headerIndexes.get('label');
+  const sourceIndex = headerIndexes.has('associated_source_image') ? headerIndexes.get('associated_source_image') : headerIndexes.get('source image');
+  const datasetIds = new Set(graph.filter(entity => graphKind(entity) === 'dataset').map(entity => entity['@id']));
+  const manifestByPath = new Map();
+  const manifestSizeByPath = new Map();
+  const labelDatasets = new Map();
+  const manifest = [];
+  let declaredBytes = 0;
+  let knownSizes = 0;
+  for (const { cells, line } of dataRows) {
+    const cell = index => index === undefined ? '' : String(cells[index] ?? '').trim();
+    const rawPath = cell(pathIndex);
+    const checked = safeManifestPath(rawPath);
+    if (checked.error) add('error', `Row ${line}: ${checked.error}.`);
+    const path = checked.path;
+    const firstPath = path && !manifestByPath.has(path);
+    if (path && manifestByPath.has(path)) add('error', `Path “${path}” is duplicated on rows ${manifestByPath.get(path)} and ${line}.`);
+    else if (path) manifestByPath.set(path, line);
+    const dataset = cell(datasetIndex);
+    if (crate && dataset && !datasetIds.has(dataset)) add('error', `Row ${line} references “${dataset}”, which is not a dataset in this RO-Crate.`);
+    if (datasetIndex !== undefined && !dataset) add('warning', `Row ${line}${path ? ` (${path})` : ''} has no dataset value.`);
+    const type = cell(typeIndex);
+    if (typeIndex !== undefined && !type) add('warning', `Row ${line}${path ? ` (${path})` : ''} has no type value.`);
+    let size = null;
+    if (sizeIndex !== undefined) {
+      const rawSize = cell(sizeIndex);
+      if (!/^\d+$/.test(rawSize)) add('error', `Row ${line}${path ? ` (${path})` : ''} has an invalid byte size.`);
+      else {
+        size = Number(rawSize);
+        if (!Number.isSafeInteger(size)) add('error', `Row ${line}${path ? ` (${path})` : ''} has a byte size larger than JavaScript can compare safely.`);
+        else { declaredBytes += size; knownSizes += 1; }
+      }
+    }
+    if (firstPath) manifestSizeByPath.set(path, size);
+    const label = cell(labelIndex);
+    if (label) {
+      if (!labelDatasets.has(label)) labelDatasets.set(label, new Set());
+      if (dataset) labelDatasets.get(label).add(dataset);
+    }
+    manifest.push({ line, path, dataset, type, size, label, source: cell(sourceIndex) });
+  }
+  for (const [label, datasets] of labelDatasets) if (datasets.size > 1) add('error', `Label “${label}” is used by multiple datasets: ${[...datasets].join(', ')}.`);
+
+  if (sourceIndex !== undefined) {
+    const paths = new Set(manifest.map(row => row.path).filter(Boolean));
+    const labels = new Set(manifest.map(row => row.label).filter(Boolean));
+    for (const row of manifest) {
+      if (!row.source && /annotation/i.test(row.type)) { add('warning', `Annotation row ${row.line}${row.path ? ` (${row.path})` : ''} has no associated source image.`); continue; }
+      if (!row.source) continue;
+      const refs = row.source.replace(/^\[|\]$/g, '').split(',').map(ref => safeManifestPath(ref).path || ref.trim()).filter(Boolean);
+      for (const ref of refs) if (!paths.has(ref) && !labels.has(ref)) add('error', `Row ${row.line} refers to source image “${ref}”, which is neither a listed path nor a label.`);
+    }
+  } else if (loaded && graph.some(entity => graphKind(entity) === 'dataset' && Object.hasOwn(entity, 'associatedAnnotationMethod'))) {
+    add('error', 'An annotation dataset is present, but file_list.tsv has no associated_source_image column.');
+  }
+
+  const inventoryPaths = new Map();
+  if (inventoryLoadError) add('error', inventoryLoadError);
+  if (inventoryReport) {
+    if (inventoryReport.format !== 'bia-ro-crate-file-inventory' || Number(inventoryReport.version) !== 1) add('error', 'The selected JSON is not a supported BIA file inventory report.');
+    if (!Array.isArray(inventoryReport.files)) add('error', 'The inventory report has no files array.');
+    else {
+      for (const [index, file] of inventoryReport.files.entries()) {
+        const checked = safeManifestPath(file?.path);
+        const size = Number(file?.size_bytes);
+        if (checked.error) { add('error', `Inventory entry ${index + 1}: ${checked.error}.`); continue; }
+        if (!Number.isSafeInteger(size) || size < 0) { add('error', `Inventory entry ${index + 1} (${checked.path}) has an invalid byte size.`); continue; }
+        if (inventoryPaths.has(checked.path)) add('error', `Inventory path “${checked.path}” occurs more than once.`);
+        else inventoryPaths.set(checked.path, size);
+      }
+      const reportBytes = [...inventoryPaths.values()].reduce((sum, size) => sum + size, 0);
+      if (Number.isInteger(inventoryReport.file_count) && inventoryReport.file_count !== inventoryPaths.size) add('error', 'The inventory report file count does not match its files array.');
+      if (Number.isSafeInteger(inventoryReport.total_bytes) && inventoryReport.total_bytes !== reportBytes) add('error', 'The inventory report total byte count does not match its file entries.');
+      if (inventoryReport.generated_at && Number.isFinite(Date.parse(inventoryReport.generated_at))) {
+        const ageHours = (Date.now() - Date.parse(inventoryReport.generated_at)) / 3600000;
+        if (ageHours > 24) add('warning', `The inventory report is ${Math.floor(ageHours / 24)} day(s) old. Regenerate it after any file changes.`);
+        else if (ageHours < -1) add('warning', 'The inventory report timestamp is in the future; check the clock on the machine that created it.');
+      } else add('warning', 'The inventory report has no valid creation timestamp.');
+      if (inventoryReport.crate_directory && currentName && inventoryReport.crate_directory !== currentName) add('warning', `Inventory was created for “${inventoryReport.crate_directory}”; the loaded crate is “${currentName}”. Confirm they belong together.`);
+    }
+  }
+
+  let matched = 0;
+  let missing = 0;
+  let mismatched = 0;
+  let extras = 0;
+  let inventoryBytes = 0;
+  if (loaded && inventoryReport && Array.isArray(inventoryReport.files)) {
+    for (const size of inventoryPaths.values()) inventoryBytes += size;
+    const uniqueManifestPaths = [...new Set(manifest.map(row => row.path).filter(Boolean))];
+    for (const path of uniqueManifestPaths) {
+      if (!inventoryPaths.has(path)) { missing += 1; add('error', `Listed file is absent from the inventory: ${path}`); continue; }
+      matched += 1;
+      const actualSize = inventoryPaths.get(path);
+      const declaredSize = manifestSizeByPath.get(path);
+      if (declaredSize !== null && declaredSize !== undefined && declaredSize !== actualSize) { mismatched += 1; add('error', `Byte size differs for ${path}: manifest has ${declaredSize}; inventory has ${actualSize}.`); }
+    }
+    for (const path of inventoryPaths.keys()) if (!manifestByPath.has(path)) { extras += 1; if (extras <= 20) add('warning', `Inventory file is not listed in file_list.tsv: ${path}`); }
+    if (extras > 20) add('warning', `${extras - 20} more inventory files are not listed in file_list.tsv.`);
+  }
+
+  const errors = findings.filter(item => item.severity === 'error').length;
+  const warnings = findings.filter(item => item.severity === 'warning').length;
+  fileListFindings = findings;
+  fileListStatus.className = `preflight-status ${errors ? 'error' : warnings ? 'warning' : loaded && inventoryReport ? 'success' : ''}`;
+  fileListStatus.textContent = !loaded ? 'File list not loaded' : !inventoryReport ? errors ? `${errors} issue(s) · inventory needed` : 'Inventory report needed' : errors ? `${errors} errors found` : warnings ? `${warnings} warnings` : 'Checks passed';
+  if (!loaded) fileListSummary.textContent = 'Choose or load file_list.tsv to begin. The inventory report is generated locally by the Python script.';
+  else if (!inventoryReport) fileListSummary.textContent = `Checked ${dataRows.length.toLocaleString()} manifest row(s). Load the inventory report to compare file paths and byte sizes.`;
+  else fileListSummary.textContent = `${matched.toLocaleString()} of ${new Set(manifest.map(row => row.path).filter(Boolean)).size.toLocaleString()} unique listed paths matched ${inventoryPaths.size.toLocaleString()} inventory files; ${missing.toLocaleString()} missing, ${mismatched.toLocaleString()} size mismatch(es), ${extras.toLocaleString()} extra file(s).`;
+  const metrics = [
+    [loaded ? dataRows.length.toLocaleString() : '—', 'manifest rows'],
+    [inventoryReport ? inventoryPaths.size.toLocaleString() : 'Not loaded', 'inventory files'],
+    [inventoryReport ? `${matched.toLocaleString()} matched` : '—', 'paths found'],
+    [inventoryReport ? `${missing.toLocaleString()} missing` : '—', 'listed files absent'],
+    [sizeIndex === undefined ? 'No size column' : inventoryReport ? `${mismatched.toLocaleString()} differ` : `${knownSizes.toLocaleString()} recorded`, 'size check'],
+    [inventoryReport ? formatBytes(inventoryBytes) : knownSizes ? formatBytes(declaredBytes) : '—', inventoryReport ? 'inventory size' : 'manifest size']
+  ];
+  fileListMetrics.innerHTML = metrics.map(([value, label]) => `<div class="preflight-metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`).join('');
+  fileListFindingsElement.innerHTML = findings.length
+    ? findings.slice(0, 80).map(item => `<li class="${item.severity}">${esc(item.message)}</li>`).join('') + (findings.length > 80 ? `<li class="info">${findings.length - 80} more findings not shown.</li>` : '')
+    : `<li class="info">${inventoryReport ? 'No file-list or inventory issues found.' : 'No manifest issues found so far. Load the inventory report to compare paths and sizes.'}</li>`;
+  if (inventoryReport) renderDirectoryTree(inventoryReport);
+  else document.querySelector('#directoryTreeDetails').hidden = true;
+  fileListSourceStatus.textContent = loaded ? `${fileListName || fileListPath} loaded${crate ? ' from the RO-Crate folder or selected file' : ''} · ${dataRows.length.toLocaleString()} data rows` : 'No file list loaded. It may already be included with the RO-Crate folder.';
+  inventoryStatus.textContent = inventoryReport ? `${inventoryReportName || 'Inventory report'} loaded · ${inventoryPaths.size.toLocaleString()} file entries${inventoryReport.generated_at ? ` · generated ${new Date(inventoryReport.generated_at).toLocaleString()}` : ''}` : 'Run the script in the crate directory, then choose its JSON report.';
+  renderWorkflowReview();
+}
+
+function renderWorkflowReview() {
+  const overallStatus = document.querySelector('#overallStatus');
+  const hasCrate = Boolean(crate);
+  const validatorReady = hasCrate && validationIsCurrent;
+  const fileListReady = Boolean(fileListText.trim() && inventoryReport);
+  const validatorErrors = currentIssues.filter(issue => issue.severity === 'error' || issue.severity === 'critical').length;
+  const validatorWarnings = currentIssues.filter(issue => issue.severity === 'warning').length;
+  const fileErrors = fileListFindings.filter(item => item.severity === 'error').length;
+  const fileWarnings = fileListFindings.filter(item => item.severity === 'warning').length;
+  document.querySelector('#reviewCrateStatus').textContent = !hasCrate ? 'Not loaded' : !validationIsCurrent ? 'Validation needed' : !validationRunCompleted ? `Stopped early · ${currentIssues.length} finding(s)` : validatorErrors ? `${validatorErrors} error(s)` : `${currentIssues.length} finding(s)`;
+  document.querySelector('#reviewCrateDetail').textContent = !hasCrate ? 'Load an RO-Crate to begin.' : !validationIsCurrent ? 'Run the official validator after your latest edit.' : !validationRunCompleted ? 'The validator did not complete; treat its findings as partial.' : `${currentIssues.length} official finding(s) reported${validatorWarnings ? `, including ${validatorWarnings} warning(s)` : ''}.`;
+  document.querySelector('#reviewFileStatus').textContent = !fileListText.trim() ? 'Not loaded' : !inventoryReport ? 'Inventory report needed' : fileErrors ? `${fileErrors} issue(s)` : `${fileListFindings.length} finding(s)`;
+  document.querySelector('#reviewFileDetail').textContent = !fileListText.trim() ? 'Load file_list.tsv to begin.' : !inventoryReport ? 'Load the generated inventory report to compare paths and sizes.' : `${fileErrors} error(s), ${fileWarnings} warning(s) in the file-list checks.`;
+  document.querySelector('#downloadMetadataReviewButton').disabled = !hasCrate;
+  document.querySelector('#downloadPreflightButton').disabled = !hasCrate && !fileListText.trim();
+  const complete = validatorReady && fileListReady;
+  const totalErrors = validatorErrors + fileErrors;
+  const totalWarnings = validatorWarnings + fileWarnings;
+  overallStatus.className = `preflight-status ${complete && totalErrors === 0 ? totalWarnings ? 'warning' : 'success' : 'warning'}`;
+  overallStatus.textContent = !complete ? 'Checks incomplete' : !validationRunCompleted ? 'Validator stopped early' : totalErrors ? `${totalErrors} error(s) to review` : totalWarnings ? `${totalWarnings} warning(s)` : 'All checks passed';
+  document.querySelector('#overallSummary').textContent = complete
+    ? `Both stages have run. The official validator reported ${currentIssues.length} finding(s); the file-list checks reported ${fileListFindings.length} finding(s). Review each item and correct source metadata/files as needed.`
+    : `To complete the preflight, ${!validatorReady ? 'run the RO-Crate validator' : ''}${!validatorReady && !fileListReady ? ' and ' : ''}${!fileListReady ? 'load file_list.tsv and its inventory report' : ''}. You can still review either stage separately.`;
+}
+
+function downloadPreflightReport() {
+  const report = {
+    format: 'bia-ro-crate-preflight-report',
+    version: 1,
+    generated_at: new Date().toISOString(),
+    crate_name: currentName || null,
+    validator: { completed_for_current_metadata: validationIsCurrent && validationRunCompleted, findings: currentIssues },
+    file_list: { name: fileListName || null, loaded: Boolean(fileListText.trim()), findings: fileListFindings },
+    inventory: inventoryReport ? { name: inventoryReportName || null, generated_at: inventoryReport.generated_at || null, file_count: inventoryReport.files?.length ?? null, total_bytes: inventoryReport.total_bytes ?? null } : null
+  };
+  const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${(currentName || 'bia-crate').replace(/[^a-z0-9-_]+/gi, '-')}-preflight-report.json`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function updateDirty(dirty) {
@@ -688,6 +983,7 @@ function applyEntityDraft() {
   renderGraph();
   updateDirty(true);
   validationIsCurrent = false;
+  validationRunCompleted = false;
   jsonStatus.textContent = 'Edited · run validation again';
   setStatus('Metadata changed. Run the validator again to refresh these findings.', 'loading');
   updateLocalParseStatus();
@@ -701,9 +997,12 @@ function updateLocalParseStatus() {
     crate = JSON.parse(editor.value);
     jsonStatus.textContent = validationIsCurrent ? 'JSON parsed · validation current' : 'JSON parsed · validation may be out of date';
     renderGraph();
+    renderFileListChecks();
   } catch {
+    crate = null;
     jsonStatus.textContent = 'Invalid JSON';
     graphSummary.textContent = 'Fix the JSON syntax to update the structure graph.';
+    renderFileListChecks();
   }
 }
 
@@ -875,8 +1174,10 @@ json.dumps(report, default=str)
     }
     currentIssues = normalizeReport(report);
     validationIsCurrent = true;
+    validationRunCompleted = report.validation_completed !== false;
     selectedIssueId = null;
     renderIssues();
+    renderWorkflowReview();
     if (report.validation_completed === false) {
       jsonStatus.textContent = 'Validation stopped early';
       setStatus(`Validation stopped early · ${currentIssues.length} issue${currentIssues.length === 1 ? '' : 's'} found before it stopped.`, 'error');
@@ -886,8 +1187,10 @@ json.dumps(report, default=str)
     }
   } catch (error) {
     validationIsCurrent = false;
+    validationRunCompleted = false;
     jsonStatus.textContent = 'Validator could not run';
     setStatus(`Could not run the official validator: ${formatValidationError(error)} Check your connection and try again.`, 'error');
+    renderWorkflowReview();
     console.error(error);
   } finally {
     refreshButton.disabled = false;
@@ -911,10 +1214,17 @@ async function openFolder(files) {
     const data = JSON.parse(raw);
     const fileList = allFiles.find(file => file.name.toLowerCase() === 'file_list.tsv');
     loadCrate(data, metadata.webkitRelativePath?.split('/')[0] || metadata.name, fileList ? await fileList.text() : '');
+    fileListName = fileList?.name || '';
+    renderFileListChecks();
     setStatus('Crate loaded. Starting official validation automatically…', 'loading');
     await runOfficialValidation();
   } catch (error) {
     crate = null;
+    fileListText = '';
+    fileListName = '';
+    inventoryReport = null;
+    inventoryReportName = '';
+    inventoryLoadError = '';
     editor.value = await metadata.text();
     editor.disabled = false;
     editorEmpty.hidden = true;
@@ -922,6 +1232,7 @@ async function openFolder(files) {
     currentIssues = [];
     renderGraph();
     renderIssues();
+    renderFileListChecks();
     editorSubhead.textContent = 'JSON syntax needs attention';
     loadStatus.textContent = 'Metadata file opened, but JSON parsing failed.';
     jsonStatus.textContent = 'Invalid JSON';
@@ -965,9 +1276,59 @@ function undoLastEdit() {
   renderLineNumbers();
   updateDirty(true);
   validationIsCurrent = false;
+  validationRunCompleted = false;
   updateLocalParseStatus();
   setStatus('Last edit undone. Run the validator again to refresh the findings.', 'loading');
 }
+
+function showWorkflowStep(step) {
+  const validSteps = new Set(['crate', 'files', 'review']);
+  const next = validSteps.has(step) ? step : 'crate';
+  document.querySelectorAll('[data-workflow-panel]').forEach(panel => { panel.hidden = panel.dataset.workflowPanel !== next; });
+  document.querySelectorAll('[data-workflow-step]').forEach(button => {
+    const active = button.dataset.workflowStep === next;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'step');
+    else button.removeAttribute('aria-current');
+  });
+  if (next === 'files') renderFileListChecks();
+  if (next === 'review') renderWorkflowReview();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.querySelectorAll('[data-workflow-step]').forEach(button => button.addEventListener('click', () => showWorkflowStep(button.dataset.workflowStep)));
+document.querySelectorAll('[data-go-step]').forEach(button => button.addEventListener('click', () => showWorkflowStep(button.dataset.goStep)));
+fileListInput.addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    fileListText = await file.text();
+    fileListName = file.name;
+    renderFileListChecks();
+  } catch (error) {
+    fileListText = '';
+    fileListName = '';
+    fileListFindings = [{ severity: 'error', message: `Could not read the file list: ${error.message}` }];
+    fileListStatus.className = 'preflight-status error';
+    fileListStatus.textContent = 'File list could not be read';
+    fileListSummary.textContent = fileListFindings[0].message;
+    fileListFindingsElement.innerHTML = `<li class="error">${esc(fileListFindings[0].message)}</li>`;
+    renderWorkflowReview();
+  }
+  event.target.value = '';
+});
+inventoryInput.addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  inventoryReportName = file.name;
+  inventoryLoadError = '';
+  try { inventoryReport = JSON.parse(await file.text()); }
+  catch (error) { inventoryReport = null; inventoryLoadError = `Could not read a valid inventory JSON file: ${error.message}`; }
+  renderFileListChecks();
+  event.target.value = '';
+});
+document.querySelector('#downloadPreflightButton').addEventListener('click', downloadPreflightReport);
+document.querySelector('#downloadMetadataReviewButton').addEventListener('click', () => downloadButton.click());
 
 folderInput.addEventListener('change', event => { if (event.target.files?.length) openFolder(event.target.files); });
 referenceInput.addEventListener('change', event => { if (event.target.files?.length) openReference(event.target.files); });
@@ -982,7 +1343,9 @@ editor.addEventListener('input', () => {
   debounceTimer = setTimeout(() => {
     updateLocalParseStatus();
     validationIsCurrent = false;
+    validationRunCompleted = false;
     setStatus('Metadata changed. Run the validator again to refresh its findings.', 'loading');
+    renderWorkflowReview();
   }, 250);
 });
 editor.addEventListener('scroll', () => {
