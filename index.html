@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
     <title>BIA RO-Crate Fix Helper</title>
-    <link rel="stylesheet" href="styles.css?v=graph-controls-2" />
+    <link rel="stylesheet" href="styles.css?v=file-list-preflight-1" />
     <script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
   </head>
   <body>
     <div class="dev-banner"><strong>IN DEVELOPMENT</strong><span>For testing only</span><span class="banner-note">Independent test tool · not the BIA submission website</span></div>
     <header class="topbar">
       <a class="brand" href="#">BIA RO-Crate Fix Helper</a>
-      <span class="privacy"><span class="privacy-dot"></span>Crate files stay in this browser</span>
+      <span class="privacy"><span class="privacy-dot"></span>Files stay in this browser; data contents are not read</span>
     </header>
 
     <main>
@@ -86,6 +86,13 @@
         </section>
       </section>
 
+      <section class="file-check-panel" aria-label="File list checks">
+        <div class="file-check-heading"><div><p class="eyebrow">SUBMISSION PREFLIGHT</p><h2>File list and folder check</h2></div><span id="fileCheckStatus" class="file-check-status">Waiting for a crate folder</span></div>
+        <p id="fileCheckSummary" class="file-check-summary">Open a crate folder to check its TSV manifest and compare listed paths and sizes with the files in that folder.</p>
+        <div id="fileCheckMetrics" class="file-check-metrics"></div>
+        <ul id="fileCheckFindings" class="file-check-findings"><li>Checks run locally in your browser. Data file contents are not uploaded or read; the tool checks file names and sizes.</li></ul>
+      </section>
+
       <section class="structure-panel" aria-label="RO-Crate structure">
         <div class="structure-heading"><div><p class="eyebrow">RO-CRATE OVERVIEW</p><h2>Structure</h2></div><span id="graphSummary">Load a crate to view its entities and links.</span></div>
         <div class="graph-toolbar">
@@ -117,6 +124,6 @@
         <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancel</button><button class="button button-primary" id="saveEntityButton" value="save">Save entity</button></div>
       </form>
     </dialog>
-    <script src="app.js?v=graph-controls-2"></script>
+    <script src="app.js?v=file-list-preflight-1"></script>
   </body>
 </html>

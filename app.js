@@ -22,6 +22,10 @@ const editDialog = document.querySelector('#editDialog');
 const entityDraft = document.querySelector('#entityDraft');
 const graphViewport = document.querySelector('#graphViewport');
 const graphSummary = document.querySelector('#graphSummary');
+const fileCheckStatus = document.querySelector('#fileCheckStatus');
+const fileCheckSummary = document.querySelector('#fileCheckSummary');
+const fileCheckMetrics = document.querySelector('#fileCheckMetrics');
+const fileCheckFindings = document.querySelector('#fileCheckFindings');
 
 const VALIDATOR_VERSION = '0.3.1';
 const ROC_VALIDATOR_VERSION = '0.8.1';
@@ -32,6 +36,7 @@ const crateRoot = '/home/pyodide/bia-helper-crate';
 let crate = null;
 let fileListText = '';
 let fileListPath = 'file_list.tsv';
+let selectedFolderFiles = [];
 let currentName = '';
 let currentIssues = [];
 let selectedIssueId = null;
@@ -292,9 +297,10 @@ function jumpToEntity(id) {
   cursorPosition.textContent = `Entity ${id} · line ${line}`;
 }
 
-function loadCrate(data, name, text = '', isDemo = false) {
+function loadCrate(data, name, text = '', isDemo = false, folderFiles = []) {
   crate = data;
   fileListText = text;
+  selectedFolderFiles = folderFiles;
   fileListPath = declaredFileListPath(data);
   currentName = name;
   history = [];
@@ -313,6 +319,7 @@ function loadCrate(data, name, text = '', isDemo = false) {
   renderLineNumbers();
   renderGraph();
   renderIssues();
+  renderFileListChecks();
   updateDirty(false);
   setStatus('Crate ready. Run validation when you are ready.');
 }
@@ -701,9 +708,12 @@ function updateLocalParseStatus() {
     crate = JSON.parse(editor.value);
     jsonStatus.textContent = validationIsCurrent ? 'JSON parsed · validation current' : 'JSON parsed · validation may be out of date';
     renderGraph();
+    renderFileListChecks();
   } catch {
+    crate = null;
     jsonStatus.textContent = 'Invalid JSON';
     graphSummary.textContent = 'Fix the JSON syntax to update the structure graph.';
+    renderFileListChecks();
   }
 }
 
@@ -761,6 +771,211 @@ function safeRelativePath(file) {
   const topFolder = file.webkitRelativePath?.split('/')[0];
   if (topFolder && path.startsWith(`${topFolder}/`)) path = path.slice(topFolder.length + 1);
   return path.split('/').filter(part => part && part !== '.' && part !== '..').join('/');
+}
+
+function normalizeManifestPath(value) {
+  return String(value ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/^(?:\.\/)+/, '').split('/').filter(part => part && part !== '.').join('/');
+}
+
+function parseTsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') { field += '"'; index += 1; }
+      else if (char === '"') quoted = false;
+      else field += char;
+    } else if (char === '"' && field === '') quoted = true;
+    else if (char === '\t') { row.push(field); field = ''; }
+    else if (char === '\n') { row.push(field.replace(/\r$/, '')); rows.push(row); row = []; field = ''; }
+    else field += char;
+  }
+  if (field.length || row.length) { row.push(field.replace(/\r$/, '')); rows.push(row); }
+  return rows;
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value)) return 'unknown';
+  if (value < 1000) return `${value} B`;
+  const units = ['kB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unit = -1;
+  while (size >= 1000 && unit < units.length - 1) { size /= 1000; unit += 1; }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unit]}`;
+}
+
+function renderFileListChecks() {
+  const findings = [];
+  const add = (severity, message) => findings.push({ severity, message });
+  fileCheckMetrics.innerHTML = '';
+  if (!crate) {
+    fileCheckStatus.textContent = 'Fix JSON syntax to run checks';
+    fileCheckStatus.className = 'file-check-status warning';
+    fileCheckSummary.textContent = 'The file list checks need valid RO-Crate JSON.';
+    fileCheckFindings.innerHTML = '<li class="warning">Correct the JSON syntax, then these checks will run again.</li>';
+    return;
+  }
+  if (!fileListText.trim()) {
+    fileCheckStatus.textContent = 'File list not found';
+    fileCheckStatus.className = 'file-check-status warning';
+    fileCheckSummary.textContent = 'This crate folder did not include file_list.tsv, so manifest and folder comparison checks could not run.';
+    fileCheckFindings.innerHTML = '<li class="warning">Add the file list alongside the RO-Crate metadata, then choose the folder again.</li>';
+    return;
+  }
+  const rows = parseTsv(fileListText);
+  const headers = (rows.shift() || []).map(header => header.trim());
+  const dataRows = rows.map((cells, index) => ({ cells, line: index + 2 })).filter(({ cells }) => cells.some(cell => cell.trim() !== ''));
+  const headerIndex = new Map();
+  headers.forEach((header, index) => {
+    const key = header.toLowerCase();
+    if (headerIndex.has(key)) add('error', `Duplicate column header “${header}” in file_list.tsv.`);
+    else headerIndex.set(key, index);
+  });
+  for (const required of ['filepath', 'dataset', 'type']) {
+    if (!headerIndex.has(required)) add('error', `Required file list column “${required}” is missing.`);
+  }
+  if (dataRows.some(({ cells }) => cells.length !== headers.length)) {
+    const badRows = dataRows.filter(({ cells }) => cells.length !== headers.length).slice(0, 8);
+    badRows.forEach(({ line, cells }) => add('error', `Row ${line} has ${cells.length} values for ${headers.length} columns.`));
+    const badCount = dataRows.filter(({ cells }) => cells.length !== headers.length).length;
+    if (badCount > badRows.length) add('error', `${badCount - badRows.length} more row(s) have the wrong number of values.`);
+  }
+
+  const graph = graphOf();
+  const fileListEntity = graph.find(entity => entityTypeList(entity).some(type => type.toLowerCase().endsWith('filelist')));
+  const schemaId = fileListEntity?.tableSchema?.['@id'];
+  const schema = graph.find(entity => entity?.['@id'] === schemaId);
+  const schemaColumns = Array.isArray(schema?.column) ? schema.column : Array.isArray(schema?.columns) ? schema.columns : [];
+  const columnEntities = new Map(graph.filter(entity => entityTypeList(entity).some(type => type.toLowerCase().endsWith('column'))).map(entity => [entity['@id'], entity]));
+  const definedHeaders = new Set(schemaColumns.map(reference => columnEntities.get(reference?.['@id'])?.columnName).filter(Boolean).map(name => String(name).trim().toLowerCase()));
+  if (!schemaColumns.length) add('warning', 'The RO-Crate file list schema has no column definitions to compare with the TSV headers.');
+  for (const header of headers) if (header && !definedHeaders.has(header.toLowerCase())) add('error', `Column “${header}” is not defined in the RO-Crate file list schema.`);
+  for (const header of definedHeaders) if (!headerIndex.has(header)) add('warning', `The RO-Crate schema defines “${header}”, but that column is absent from file_list.tsv.`);
+
+  const pathColumn = headerIndex.get('filepath');
+  const datasetColumn = headerIndex.get('dataset');
+  const typeColumn = headerIndex.get('type');
+  const labelColumn = headerIndex.get('label');
+  const sourceColumn = headerIndex.has('associated_source_image') ? headerIndex.get('associated_source_image') : headerIndex.get('source image');
+  const sizeColumn = ['size_in_bytes', 'size_bytes', 'file_size_bytes', 'filesize_bytes'].map(name => headerIndex.get(name)).find(index => index !== undefined);
+  const datasetIds = new Set(graph.filter(entity => graphKind(entity) === 'dataset' && entity !== graph.find(item => graphKind(item) === 'study')).map(entity => entity['@id']));
+  const pathRows = new Map();
+  const manifestRows = [];
+  const labelsToDatasets = new Map();
+  let declaredBytes = 0;
+  let byteValues = 0;
+  let missingDatasetReferences = 0;
+  for (const { cells, line } of dataRows) {
+    const get = index => index === undefined ? '' : String(cells[index] ?? '').trim();
+    const rawPath = get(pathColumn);
+    const path = normalizeManifestPath(rawPath);
+    const dataset = get(datasetColumn);
+    const type = get(typeColumn);
+    if (rawPath && (/^\//.test(rawPath) || /^[a-z]:[\\/]/i.test(rawPath))) add('error', `Row ${line} filepath must be relative, but is absolute: ${rawPath}`);
+    if (pathColumn !== undefined && !path) add('error', `Row ${line} has no filepath.`);
+    if (path) {
+      if (pathRows.has(path)) add('error', `File path “${path}” is repeated on rows ${pathRows.get(path)} and ${line}.`);
+      else pathRows.set(path, line);
+    }
+    if (dataset && !datasetIds.has(dataset)) {
+      missingDatasetReferences += 1;
+      if (missingDatasetReferences <= 12) add('error', `Row ${line} refers to dataset “${dataset}”, which is not a bia:Dataset in this RO-Crate.`);
+    }
+    if (typeColumn !== undefined && !type) add('warning', `Row ${line}${path ? ` (${path})` : ''} has no file type.`);
+    const sizeText = sizeColumn === undefined ? '' : get(sizeColumn);
+    const size = sizeText ? Number(sizeText) : NaN;
+    if (sizeColumn !== undefined) {
+      if (!Number.isFinite(size) || size < 0) add('error', `Row ${line}${path ? ` (${path})` : ''} has an invalid size in bytes.`);
+      else { declaredBytes += size; byteValues += 1; }
+    }
+    const label = labelColumn === undefined ? '' : get(labelColumn);
+    if (label) {
+      if (!labelsToDatasets.has(label)) labelsToDatasets.set(label, new Set());
+      if (dataset) labelsToDatasets.get(label).add(dataset);
+    }
+    const source = sourceColumn === undefined ? '' : get(sourceColumn);
+    manifestRows.push({ line, path, dataset, type, size, label, source });
+  }
+  if (missingDatasetReferences > 12) add('error', `${missingDatasetReferences - 12} more rows refer to dataset IDs that are missing from the RO-Crate.`);
+  for (const [label, datasets] of labelsToDatasets) if (datasets.size > 1) add('error', `Label “${label}” is reused across datasets (${[...datasets].join(', ')}).`);
+
+  if (pathColumn !== undefined && sourceColumn !== undefined) {
+    const knownFiles = new Set(manifestRows.map(row => row.path).filter(Boolean));
+    const knownLabels = new Set(manifestRows.map(row => row.label).filter(Boolean));
+    let sourceIssues = 0;
+    for (const row of manifestRows) {
+      if (!row.source) {
+        if (/annotation/i.test(row.type)) {
+          sourceIssues += 1;
+          if (sourceIssues <= 12) add('warning', `Annotation row ${row.line}${row.path ? ` (${row.path})` : ''} has no associated source image.`);
+        }
+        continue;
+      }
+      const references = row.source.replace(/^\[|\]$/g, '').split(',').map(value => normalizeManifestPath(value.trim())).filter(Boolean);
+      for (const reference of references) if (!knownFiles.has(reference) && !knownLabels.has(reference)) {
+        sourceIssues += 1;
+        if (sourceIssues <= 12) add('error', `Row ${row.line} links to source image “${reference}”, which is not a file path or label in the list.`);
+      }
+    }
+    if (sourceIssues > 12) add('error', `${sourceIssues - 12} more source image reference issue(s) were found.`);
+  }
+
+  const actualFiles = selectedFolderFiles.map(file => ({ file, path: normalizeManifestPath(safeRelativePath(file)) })).filter(({ path }) => path && path !== normalizeManifestPath(fileListPath) && path.split('/').at(-1) !== 'ro-crate-metadata.json' && path.split('/').at(-1) !== '.DS_Store' && !path.startsWith('__MACOSX/'));
+  let matchedFiles = 0;
+  let missingFiles = 0;
+  let sizeMismatches = 0;
+  let totalActualBytes = 0;
+  if (selectedFolderFiles.length && pathColumn !== undefined) {
+    const actualByPath = new Map(actualFiles.map(({ file, path }) => [path, file]));
+    const listedPaths = new Set();
+    for (const row of manifestRows) {
+      if (!row.path || listedPaths.has(row.path)) continue;
+      listedPaths.add(row.path);
+      const file = actualByPath.get(row.path);
+      if (!file) {
+        missingFiles += 1;
+        if (missingFiles <= 12) add('error', `Listed file was not found in the selected folder: ${row.path}`);
+        continue;
+      }
+      matchedFiles += 1;
+      totalActualBytes += file.size || 0;
+      if (sizeColumn !== undefined && Number.isFinite(row.size) && row.size !== file.size) {
+        sizeMismatches += 1;
+        if (sizeMismatches <= 12) add('error', `Size differs for ${row.path}: file list says ${row.size} bytes; selected file is ${file.size} bytes.`);
+      }
+    }
+    if (missingFiles > 12) add('error', `${missingFiles - 12} more listed file(s) were not found in the selected folder.`);
+    const extraFiles = actualFiles.filter(({ path }) => !listedPaths.has(path));
+    totalActualBytes = actualFiles.reduce((sum, { file }) => sum + (file.size || 0), 0);
+    if (extraFiles.length) {
+      add('warning', `${extraFiles.length} file(s) in the selected folder are not listed in file_list.tsv${extraFiles.length <= 5 ? `: ${extraFiles.map(item => item.path).join(', ')}` : ` (examples: ${extraFiles.slice(0, 5).map(item => item.path).join(', ')})`}.`);
+    }
+  }
+
+  const datasetsWithAnnotation = graph.filter(entity => graphKind(entity) === 'dataset' && Object.hasOwn(entity, 'associatedAnnotationMethod'));
+  if (datasetsWithAnnotation.length && sourceColumn === undefined) add('error', 'A dataset uses an annotation method, but file_list.tsv has no associated_source_image column.');
+  const metrics = [
+    [dataRows.length.toLocaleString(), 'manifest rows'],
+    [selectedFolderFiles.length ? `${matchedFiles.toLocaleString()} / ${pathRows.size.toLocaleString()}` : 'Not checked', 'listed files found'],
+    [selectedFolderFiles.length ? `${missingFiles.toLocaleString()} missing` : 'Select folder', 'folder comparison'],
+    [sizeColumn === undefined ? 'No size column' : selectedFolderFiles.length ? `${sizeMismatches.toLocaleString()} differ` : `${byteValues.toLocaleString()} recorded`, 'size check'],
+    [selectedFolderFiles.length ? formatBytes(totalActualBytes) : byteValues ? formatBytes(declaredBytes) : 'Not available', selectedFolderFiles.length ? 'selected folder size' : 'manifest size total']
+  ];
+  fileCheckMetrics.innerHTML = metrics.map(([value, label]) => `<div class="file-check-metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`).join('');
+  const errorCount = findings.filter(item => item.severity === 'error').length;
+  const warningCount = findings.filter(item => item.severity === 'warning').length;
+  const checkState = errorCount ? 'error' : warningCount ? 'warning' : 'success';
+  fileCheckStatus.className = `file-check-status ${checkState}`;
+  fileCheckStatus.textContent = errorCount ? `${errorCount} issue${errorCount === 1 ? '' : 's'} found` : warningCount ? `${warningCount} warning${warningCount === 1 ? '' : 's'}` : 'Checks passed';
+  fileCheckSummary.textContent = selectedFolderFiles.length
+    ? `${matchedFiles.toLocaleString()} of ${pathRows.size.toLocaleString()} unique manifest paths were found among ${actualFiles.length.toLocaleString()} data files in the selected folder${sizeColumn === undefined ? '' : `; ${sizeMismatches.toLocaleString()} file size mismatch${sizeMismatches === 1 ? '' : 'es'}`}.`
+    : `Checked ${dataRows.length.toLocaleString()} non-empty manifest row${dataRows.length === 1 ? '' : 's'}. Select the folder containing the data files to compare paths and byte sizes.`;
+  fileCheckFindings.innerHTML = findings.length
+    ? findings.slice(0, 50).map(item => `<li class="${item.severity}">${esc(item.message)}</li>`).join('') + (findings.length > 50 ? `<li class="info">${findings.length - 50} more finding(s) not shown.</li>` : '')
+    : '<li class="info">No file list issues found. The tool checked the required columns, schema definitions, references, and any available local path and size data.</li>';
 }
 
 async function writeCrateFiles(pyodide) {
@@ -910,11 +1125,13 @@ async function openFolder(files) {
     const raw = await metadata.text();
     const data = JSON.parse(raw);
     const fileList = allFiles.find(file => file.name.toLowerCase() === 'file_list.tsv');
-    loadCrate(data, metadata.webkitRelativePath?.split('/')[0] || metadata.name, fileList ? await fileList.text() : '');
+    loadCrate(data, metadata.webkitRelativePath?.split('/')[0] || metadata.name, fileList ? await fileList.text() : '', false, allFiles);
     setStatus('Crate loaded. Starting official validation automatically…', 'loading');
     await runOfficialValidation();
   } catch (error) {
     crate = null;
+    fileListText = '';
+    selectedFolderFiles = allFiles;
     editor.value = await metadata.text();
     editor.disabled = false;
     editorEmpty.hidden = true;
@@ -922,6 +1139,7 @@ async function openFolder(files) {
     currentIssues = [];
     renderGraph();
     renderIssues();
+    renderFileListChecks();
     editorSubhead.textContent = 'JSON syntax needs attention';
     loadStatus.textContent = 'Metadata file opened, but JSON parsing failed.';
     jsonStatus.textContent = 'Invalid JSON';
@@ -953,7 +1171,7 @@ async function openReference(files) {
 function loadDemo() {
   referenceCrate = null;
   referenceStatus.textContent = 'No reference loaded';
-  loadCrate(JSON.parse(JSON.stringify(demoCrate)), 'Example study', demoFileList, true);
+  loadCrate(JSON.parse(JSON.stringify(demoCrate)), 'Example study', demoFileList, true, []);
   fileListPath = 'file_list.tsv';
 }
 
