@@ -4,23 +4,23 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
-    <title>BIA RO-Crate Fix Helper</title>
-    <link rel="stylesheet" href="styles.css?v=codon-path-command-1" />
+    <title>BIA RO-Crate QC Tool</title>
+    <link rel="stylesheet" href="styles.css?v=qc-review-2" />
     <script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
   </head>
   <body>
     <div class="dev-banner"><strong>IN DEVELOPMENT</strong><span>For testing only</span><span class="banner-note">Independent test tool · not the BIA submission website</span></div>
     <header class="topbar">
-      <a class="brand" href="#">BIA RO-Crate Fix Helper</a>
+      <a class="brand" href="#">BIA RO-Crate QC Tool</a>
       <span class="privacy"><span class="privacy-dot"></span>Crate files stay in this browser</span>
     </header>
 
     <main>
       <section class="intro">
         <div>
-          <p class="eyebrow">METADATA REVIEW</p>
-          <h1>BIA RO-Crate Fix Helper</h1>
-          <p class="lede">Find the issue. Make the fix with confidence. Inspect each BIA validator finding beside its JSON, review suggested edits, and download your metadata.</p>
+          <p class="eyebrow">SUBMISSION QUALITY CHECK</p>
+          <h1>BIA RO-Crate QC Tool</h1>
+          <p class="lede">Check RO-Crate metadata and file lists before submission. Review validator findings beside the JSON, consider suggested edits, and download your results.</p>
         </div>
       </section>
 
@@ -54,6 +54,11 @@
             <button class="button button-primary run-button" id="refreshButton" type="button">Run validation</button>
           </div>
           <div class="validator-status" id="validatorStatus" role="status">Open a crate, then run validation.</div>
+          <div class="finding-key" aria-label="Finding severity key">
+            <span><b class="severity-dot error"></b><strong>Error</strong><small>Blocking · can fail validation</small></span>
+            <span><b class="severity-dot warning"></b><strong>Warning</strong><small>Non-blocking · review recommended</small></span>
+            <span><b class="severity-dot info"></b><strong>Info</strong><small>Non-blocking · informational</small></span>
+          </div>
           <div class="issue-toolbar"><label for="severityFilter">Show</label><select id="severityFilter" aria-label="Filter findings"><option value="all">All findings</option><option value="critical">Critical</option><option value="error">Errors</option><option value="warning">Warnings</option><option value="info">Information</option></select></div>
           <div class="issue-list" id="issueList">
             <div class="empty-state"><span class="empty-icon">○</span><strong>Your findings will appear here</strong><span>Choose an RO-Crate folder to begin.</span></div>
@@ -141,9 +146,9 @@
             <div class="terminal-setup"><button class="button button-secondary button-small" id="copyCodonSetupButton" type="button">Copy Codon terminal setup</button><span id="copyCodonSetupStatus" role="status" aria-live="polite">Copies the script into your Codon home directory.</span><a href="bia_crate_inventory.py" download="bia_crate_inventory.py">Download script instead</a></div>
             <div class="codon-path-builder">
               <label for="codonDirectoryInput">Codon directory to check</label>
-              <input id="codonDirectoryInput" type="text" spellcheck="false" value="/nfs/production/matthewh/spora_submissions/staging_2026-09-29/fischer2023multiplex" />
+              <input id="codonDirectoryInput" type="text" spellcheck="false" placeholder="/nfs/path/to/submission-directory" value="" />
               <div class="generated-command"><span>Paste this into the Codon shell</span><code id="codonRunCommand"></code><button class="button button-primary button-small" id="copyCodonRunButton" type="button">Copy run command</button><span id="copyCodonRunStatus" role="status" aria-live="polite"></span></div>
-              <div class="generated-command"><span>Then paste this into your Mac Terminal</span><code id="codonScpCommand"></code></div>
+              <div class="generated-command"><span>Then paste this into your Mac Terminal (replace the placeholders)</span><code id="codonScpCommand">scp &lt;user_name&gt;@codon…:~/example_file_inventory.json ~/Downloads/</code></div>
               <p>The JSON report is saved in your Codon home directory using the crate folder name. The Python script itself does not read the data-file contents.</p>
             </div>
             <p>The script inventories relative paths and file sizes only. It does not read data-file contents, change files, or connect to a server. Regenerate the report after changing the folder.</p>
@@ -171,7 +176,7 @@
         <div class="workflow-actions"><button class="button button-secondary" type="button" data-go-step="files">← Back to file list</button><span>Step 3 of 3</span></div>
       </section>
 
-      <footer><span>BIA RO-Crate Fix Helper · test website</span><span>Use the validator as the source of truth</span></footer>
+      <footer><span>BIA RO-Crate QC Tool · test website</span><span>Use the validator as the source of truth</span></footer>
     </main>
 
     <dialog id="editDialog" class="edit-dialog">
@@ -187,6 +192,6 @@
         <div class="dialog-actions"><button class="button button-secondary" value="cancel">Cancel</button><button class="button button-primary" id="saveEntityButton" value="save">Save entity</button></div>
       </form>
     </dialog>
-    <script src="app.js?v=codon-path-command-1"></script>
+    <script src="app.js?v=qc-review-2"></script>
   </body>
 </html>

@@ -581,17 +581,22 @@ function renderWorkflowReview() {
   const validatorWarnings = currentIssues.filter(issue => issue.severity === 'warning').length;
   const fileErrors = fileListFindings.filter(item => item.severity === 'error').length;
   const fileWarnings = fileListFindings.filter(item => item.severity === 'warning').length;
-  document.querySelector('#reviewCrateStatus').textContent = !hasCrate ? 'Not loaded' : !validationIsCurrent ? 'Validation needed' : !validationRunCompleted ? `Stopped early · ${currentIssues.length} finding(s)` : validatorErrors ? `${validatorErrors} error(s)` : `${currentIssues.length} finding(s)`;
+  const countMarkup = (blocking, nonBlocking) => `<span class="review-count-blocking">Block: ${blocking}</span><span class="review-count-nonblocking">Non-blocking: ${nonBlocking}</span>`;
+  const validatorNonBlocking = currentIssues.length - validatorErrors;
+  const fileNonBlocking = fileListFindings.length - fileErrors;
+  const crateStatus = document.querySelector('#reviewCrateStatus');
+  crateStatus.innerHTML = !hasCrate ? 'Not loaded' : !validationIsCurrent ? 'Validation needed' : `${!validationRunCompleted ? '<span class="review-count-nonblocking">Partial · </span>' : ''}${countMarkup(validatorErrors, validatorNonBlocking)}`;
   document.querySelector('#reviewCrateDetail').textContent = !hasCrate ? 'Load an RO-Crate to begin.' : !validationIsCurrent ? 'Run the official validator after your latest edit.' : !validationRunCompleted ? 'The validator did not complete; treat its findings as partial.' : `${currentIssues.length} official finding(s) reported${validatorWarnings ? `, including ${validatorWarnings} warning(s)` : ''}.`;
-  document.querySelector('#reviewFileStatus').textContent = !fileListText.trim() ? 'Not loaded' : !inventoryReport ? 'Inventory report needed' : fileErrors ? `${fileErrors} issue(s)` : `${fileListFindings.length} finding(s)`;
+  const fileStatus = document.querySelector('#reviewFileStatus');
+  fileStatus.innerHTML = !fileListText.trim() ? 'Not loaded' : !inventoryReport ? 'Inventory report needed' : countMarkup(fileErrors, fileNonBlocking);
   document.querySelector('#reviewFileDetail').textContent = !fileListText.trim() ? 'Load file_list.tsv to begin.' : !inventoryReport ? 'Load the generated inventory report to compare paths and sizes.' : `${fileErrors} error(s), ${fileWarnings} warning(s) in the file-list checks.`;
   document.querySelector('#downloadMetadataReviewButton').disabled = !hasCrate;
   document.querySelector('#downloadPreflightButton').disabled = !hasCrate && !fileListText.trim();
   const complete = validatorReady && fileListReady;
   const totalErrors = validatorErrors + fileErrors;
-  const totalWarnings = validatorWarnings + fileWarnings;
-  overallStatus.className = `preflight-status ${complete && totalErrors === 0 ? totalWarnings ? 'warning' : 'success' : 'warning'}`;
-  overallStatus.textContent = !complete ? 'Checks incomplete' : !validationRunCompleted ? 'Validator stopped early' : totalErrors ? `${totalErrors} error(s) to review` : totalWarnings ? `${totalWarnings} warning(s)` : 'All checks passed';
+  const totalNonBlocking = validatorNonBlocking + fileNonBlocking;
+  overallStatus.className = `preflight-status ${complete && totalErrors === 0 ? totalNonBlocking ? 'warning' : 'success' : 'warning'}`;
+  overallStatus.innerHTML = !complete ? 'Checks incomplete' : `${!validationRunCompleted ? '<span class="review-count-nonblocking">Partial · </span>' : ''}${countMarkup(totalErrors, totalNonBlocking)}`;
   document.querySelector('#overallSummary').textContent = complete
     ? `Both stages have run. The official validator reported ${currentIssues.length} finding(s); the file-list checks reported ${fileListFindings.length} finding(s). Review each item and correct source metadata/files as needed.`
     : `To complete the preflight, ${!validatorReady ? 'run the RO-Crate validator' : ''}${!validatorReady && !fileListReady ? ' and ' : ''}${!fileListReady ? 'load file_list.tsv and its inventory report' : ''}. You can still review either stage separately.`;
@@ -1324,20 +1329,14 @@ document.querySelector('#copyCodonSetupButton').addEventListener('click', async 
 });
 const codonDirectoryInput = document.querySelector('#codonDirectoryInput');
 const codonRunCommand = document.querySelector('#codonRunCommand');
-const codonScpCommand = document.querySelector('#codonScpCommand');
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 function updateCodonCommands() {
   const directory = codonDirectoryInput.value.trim().replace(/\/$/, '');
-  const baseName = directory.split('/').filter(Boolean).at(-1) || 'crate';
-  const reportName = `${baseName}_file_inventory.json`;
   codonRunCommand.textContent = directory
     ? `cd ~ && python3 ~/bia_crate_inventory.py --directory ${shellQuote(directory)}`
-    : 'Enter a directory path above.';
-  codonScpCommand.textContent = directory
-    ? `scp marks@codon-slurm-login-01:~/${reportName} ~/Downloads/`
-    : 'Enter a directory path above.';
+    : 'Enter a directory above to generate the command.';
   document.querySelector('#copyCodonRunButton').disabled = !directory;
 }
 codonDirectoryInput.addEventListener('input', updateCodonCommands);

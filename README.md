@@ -1,4 +1,4 @@
-# BIA RO-Crate Fix Helper
+# BIA RO-Crate QC Tool
 
 A small, independent test website for reviewing BIA RO-Crate validation findings and editing `ro-crate-metadata.json`.
 
