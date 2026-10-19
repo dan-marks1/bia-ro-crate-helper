@@ -11,6 +11,7 @@ const editorEmpty = document.querySelector('#editorEmpty');
 const cursorPosition = document.querySelector('#cursorPosition');
 const jsonStatus = document.querySelector('#jsonStatus');
 const lineNumbers = document.querySelector('#lineNumbers');
+const lineIssueTooltip = document.querySelector('#lineIssueTooltip');
 const issueHighlights = document.querySelector('#issueHighlights');
 const undoButton = document.querySelector('#undoButton');
 const refreshButton = document.querySelector('#refreshButton');
@@ -42,6 +43,9 @@ let dialogEntityId = null;
 let dialogEditsWholeCrate = false;
 let debounceTimer = null;
 let graphCamera = { scale: 1, x: 0, y: 0 };
+let gutterTooltipMarker = null;
+let gutterTooltipPinned = false;
+let gutterTooltipTimer = null;
 
 const demoCrate = {
   '@context': {
@@ -197,7 +201,7 @@ function renderGraph() {
         : kind === 'file' || kind === 'other'
           ? '<circle class="node-shape" r="10"/>'
           : '<circle class="node-shape" r="14"/>';
-    return `<g class="graph-node ${kind}${orphan ? ' orphan-node' : ''}" data-entity="${esc(id)}" role="button" tabindex="0" aria-label="Open ${esc(title)}"><title>${esc(title)}</title><text class="node-label" x="0" y="-22" text-anchor="middle">${esc(shortLabel)}</text>${shape}<text class="node-id" x="0" y="30" text-anchor="middle">${esc(id.length > 22 ? `${id.slice(0, 20)}…` : id)}</text></g>`;
+    return `<g class="graph-node ${kind}${orphan ? ' orphan-node' : ''}" transform="translate(${pos.x} ${pos.y})" data-entity="${esc(id)}" role="button" tabindex="0" aria-label="Open ${esc(title)}"><title>${esc(title)}</title><text class="node-label" x="0" y="-22" text-anchor="middle">${esc(shortLabel)}</text>${shape}<text class="node-id" x="0" y="30" text-anchor="middle">${esc(id.length > 22 ? `${id.slice(0, 20)}…` : id)}</text></g>`;
   }).join('');
   graphSummary.textContent = `${entities.length} entities · ${links.length} links${dangling.length ? ` · ${dangling.length} unresolved link${dangling.length === 1 ? '' : 's'}` : ''}`;
   graphViewport.innerHTML = `<svg id="crateGraph" class="crate-graph" viewBox="0 0 ${width} ${height}" role="img" aria-label="RO-Crate entity relationship graph"><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#aab3b8"/></marker></defs><g id="graphTransform">${edgeMarkup}${danglingMarkup}${nodesMarkup}</g></svg>`;
@@ -384,6 +388,7 @@ function updateLineForIssue(issue) {
 }
 
 function renderLineNumbers() {
+  hideLineIssueTooltip(true);
   const count = Math.max(1, editor.value.split('\n').length);
   const lineIssues = new Map();
   currentIssues.forEach(issue => {
@@ -397,13 +402,87 @@ function renderLineNumbers() {
     const line = index + 1;
     const issues = lineIssues.get(line) || [];
     const marker = issues.length
-      ? `<span class="line-issue-mark ${esc(issues[0].severity)}" tabindex="0" role="img" aria-label="${esc(issues.map(issue => issue.message).join('; '))}" title="${esc(issues.map(issue => `${issue.severity.toUpperCase()}: ${issue.message}`).join('\n'))}">!</span>`
+      ? `<span class="line-issue-mark ${esc(issues[0].severity)}" data-line="${line}" data-tooltip="${esc(issues.map(issue => `${issue.severity.toUpperCase()}: ${issue.message}`).join('\n'))}" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false" aria-label="Show ${issues.length} finding${issues.length === 1 ? '' : 's'} on line ${line}" aria-describedby="lineIssueTooltip">!</span>`
       : '<span class="line-issue-mark empty"></span>';
     return `<div class="line-row">${marker}<span class="line-number">${line}</span></div>`;
   }).join('');
   lineNumbers.scrollTop = editor.scrollTop;
   renderHighlights();
 }
+
+function positionLineIssueTooltip(marker) {
+  if (!marker || lineIssueTooltip.hidden) return;
+  const wrapRect = document.querySelector('#editorWrap').getBoundingClientRect();
+  const markerRect = marker.getBoundingClientRect();
+  const left = Math.max(58, Math.min(wrapRect.width - Math.min(360, wrapRect.width - 68), markerRect.right - wrapRect.left + 10));
+  lineIssueTooltip.style.left = `${left}px`;
+  lineIssueTooltip.style.top = `${Math.max(6, Math.min(wrapRect.height - lineIssueTooltip.offsetHeight - 6, markerRect.top - wrapRect.top - 4))}px`;
+}
+
+function showLineIssueTooltip(marker, pin = false) {
+  clearTimeout(gutterTooltipTimer);
+  gutterTooltipMarker = marker;
+  if (pin) gutterTooltipPinned = true;
+  lineIssueTooltip.textContent = marker.dataset.tooltip || marker.getAttribute('aria-label') || 'Validator finding';
+  lineIssueTooltip.hidden = false;
+  lineNumbers.querySelectorAll('.line-issue-mark[aria-expanded="true"]').forEach(item => item.setAttribute('aria-expanded', 'false'));
+  marker.setAttribute('aria-expanded', 'true');
+  positionLineIssueTooltip(marker);
+}
+
+function hideLineIssueTooltip(force = false) {
+  if (gutterTooltipPinned && !force) return;
+  clearTimeout(gutterTooltipTimer);
+  if (gutterTooltipMarker) gutterTooltipMarker.setAttribute('aria-expanded', 'false');
+  gutterTooltipMarker = null;
+  gutterTooltipPinned = false;
+  lineIssueTooltip.hidden = true;
+}
+
+function deferLineIssueTooltipHide() {
+  clearTimeout(gutterTooltipTimer);
+  gutterTooltipTimer = setTimeout(() => hideLineIssueTooltip(), 220);
+}
+
+lineNumbers.addEventListener('pointerover', event => {
+  const marker = event.target.closest?.('.line-issue-mark:not(.empty)');
+  if (marker) showLineIssueTooltip(marker);
+});
+lineNumbers.addEventListener('pointerout', event => {
+  if (!event.target.closest?.('.line-issue-mark:not(.empty)') || lineIssueTooltip.contains(event.relatedTarget)) return;
+  deferLineIssueTooltipHide();
+});
+lineNumbers.addEventListener('focusin', event => {
+  const marker = event.target.closest?.('.line-issue-mark:not(.empty)');
+  if (marker) showLineIssueTooltip(marker);
+});
+lineNumbers.addEventListener('focusout', event => {
+  if (event.target.closest?.('.line-issue-mark:not(.empty)')) deferLineIssueTooltipHide();
+});
+lineNumbers.addEventListener('click', event => {
+  const marker = event.target.closest?.('.line-issue-mark:not(.empty)');
+  if (!marker) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const alreadyPinned = gutterTooltipPinned && gutterTooltipMarker === marker;
+  if (alreadyPinned) hideLineIssueTooltip(true);
+  else showLineIssueTooltip(marker, true);
+});
+lineNumbers.addEventListener('keydown', event => {
+  if (!['Enter', ' '].includes(event.key)) return;
+  const marker = event.target.closest?.('.line-issue-mark:not(.empty)');
+  if (!marker) return;
+  event.preventDefault();
+  const alreadyPinned = gutterTooltipPinned && gutterTooltipMarker === marker;
+  if (alreadyPinned) hideLineIssueTooltip(true);
+  else showLineIssueTooltip(marker, true);
+});
+lineIssueTooltip.addEventListener('pointerenter', () => clearTimeout(gutterTooltipTimer));
+lineIssueTooltip.addEventListener('pointerleave', () => deferLineIssueTooltipHide());
+document.querySelector('#editorWrap').addEventListener('click', event => {
+  if (!event.target.closest?.('.line-issue-mark:not(.empty)') && !lineIssueTooltip.contains(event.target)) hideLineIssueTooltip(true);
+});
+document.addEventListener('keydown', event => { if (event.key === 'Escape') hideLineIssueTooltip(true); });
 
 function renderHighlights() {
   const ordered = [...currentIssues].sort((a, b) => Number(a.id === selectedIssueId) - Number(b.id === selectedIssueId));
@@ -909,6 +988,7 @@ editor.addEventListener('input', () => {
 editor.addEventListener('scroll', () => {
   lineNumbers.scrollTop = editor.scrollTop;
   renderHighlights();
+  if (!lineIssueTooltip.hidden && gutterTooltipMarker?.isConnected) positionLineIssueTooltip(gutterTooltipMarker);
 });
 document.querySelector('#editDialog form').addEventListener('submit', event => {
   if (event.submitter?.id === 'saveEntityButton') {

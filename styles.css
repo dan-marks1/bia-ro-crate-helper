@@ -90,12 +90,14 @@ main{max-width:1500px}
 #lineNumbers{z-index:3;white-space:normal;padding-right:5px;pointer-events:none;display:block}
 .line-row{height:19.25px;display:flex;align-items:center;justify-content:flex-end;gap:5px;white-space:nowrap}
 .line-number{min-width:22px}
-.line-issue-mark{width:13px;height:13px;flex:0 0 13px;display:inline-grid;place-items:center;border-radius:50%;font:bold 9px Arial,sans-serif;pointer-events:auto;cursor:help;color:#fff;background:#b44842;outline:none}
+.line-issue-mark{width:13px;height:13px;flex:0 0 13px;display:inline-grid;place-items:center;border-radius:50%;font:bold 9px Arial,sans-serif;pointer-events:auto;cursor:pointer;color:#fff;background:#b44842;outline:none}
 .line-issue-mark.warning{background:#b77a21}
 .line-issue-mark.info{background:#5d84b3}
 .line-issue-mark.critical{background:#a5302c}
 .line-issue-mark.empty{visibility:hidden}
 .line-issue-mark:focus-visible{box-shadow:0 0 0 2px #fff,0 0 0 4px #3f73b5}
+.line-issue-tooltip{position:absolute;z-index:6;max-width:min(360px,calc(100% - 68px));max-height:180px;overflow:auto;padding:10px 12px;border:1px solid #d6dce1;border-radius:4px;background:#fff;box-shadow:0 5px 18px #18273526;color:#303b42;font-size:12px;line-height:1.55;white-space:pre-wrap;pointer-events:auto}
+.line-issue-tooltip[hidden]{display:none}
 @media(max-width:520px){.graph-toolbar{align-items:flex-start;flex-direction:column}.graph-tools{align-self:flex-end}.graph-viewport{height:auto;min-height:300px}}
 .graph-node text.node-id{fill:#6c777d;font:8px ui-monospace,SFMono-Regular,Menlo,monospace;paint-order:stroke;stroke:#fff;stroke-width:2px}
 .graph-node.study text.node-id,.graph-node.dataset text.node-id{display:none}

@@ -77,7 +77,8 @@
               <p>Select a crate folder or load the demo. Click a finding to jump to its JSON location.</p>
               <button class="text-button" id="editorDemoButton" type="button">Load the demo crate <span>→</span></button>
             </div>
-            <div id="lineNumbers" aria-hidden="true"></div>
+            <div id="lineNumbers"></div>
+            <div id="lineIssueTooltip" class="line-issue-tooltip" role="tooltip" hidden></div>
             <div id="issueHighlights" aria-hidden="true"></div>
             <textarea id="jsonEditor" spellcheck="false" aria-label="RO-Crate JSON metadata" disabled></textarea>
           </div>
