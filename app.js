@@ -1056,6 +1056,11 @@ import micropip
 # declares typos, a spell-check utility with no WebAssembly wheel. Its Python
 # validator code does not import typos, so skip only automatic resolution for
 # roc-validator and install its actual runtime dependencies here.
+#
+# Pyodide's package index bundles idna 3.11 alongside requests, but one of the
+# PyPI installs below now requires idna>=3.20, and micropip refuses to replace
+# an already-loaded package unless told to. Upgrade it first.
+await micropip.install("idna>=3.20", reinstall=True)
 await micropip.install("rdflib==7.6.0")
 await micropip.install("PyLD==2.0.4")
 await micropip.install("rich==13.9.4")
